@@ -40,9 +40,11 @@ resource "aws_eks_addon" "cloudwatch_observability" {
     }
   })
 
+  # Service creation invokes the ALB webhook; wait until its controller is ready.
   depends_on = [
     aws_iam_role_policy_attachment.cloudwatch_agent,
     aws_iam_role_policy_attachment.cloudwatch_xray,
+    helm_release.aws_load_balancer_controller,
     module.eks
   ]
 }
