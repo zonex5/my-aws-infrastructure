@@ -37,6 +37,10 @@ stage_cognito_user_pool_id = "us-east-1_Stage123"
 prod_cognito_user_pool_id  = "us-east-1_Prod123"
 s3_bucket_name             = "qualitypro-docs"
 
+# Allow deletion of bucket contents only when intentionally tearing down a disposable deployment.
+# Apply true before destroy; reset to false before deploying again.
+s3_force_destroy = false
+
 # Shared base names: stage-/prod- prefixes are added automatically.
 # S3 also adds <account-id>-<region> unless that exact suffix is already present.
 # In HCP Terraform, enable HCL for these list values.

@@ -177,6 +177,13 @@ variable "s3_bucket_name" {
   }
 }
 
+variable "s3_force_destroy" {
+  description = "Allow Terraform destroy to delete all objects and versions in both application S3 buckets. Apply true before destroying a disposable deployment; keep false for normal deployments."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "backend_sns_topic_names" {
   description = "Shared SNS topic base names for both stage and prod. Empty disables SNS/SQS in both environments. In HCP Terraform, enable HCL and enter a list such as [\"notifications\", \"audit\"]."
   type        = list(string)

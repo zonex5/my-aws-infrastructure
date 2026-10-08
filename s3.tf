@@ -1,7 +1,8 @@
 resource "aws_s3_bucket" "backend" {
   for_each = local.application_namespace_keys
 
-  bucket = "${each.key}-${local.s3_bucket_base_name}"
+  bucket        = "${each.key}-${local.s3_bucket_base_name}"
+  force_destroy = var.s3_force_destroy
 
   tags = local.common_tags
 

@@ -56,6 +56,7 @@ Every variable without a `default` is required and uses `nullable = false`: supp
 | `stage_cognito_user_pool_id` | `us-east-1_Stage123` | No | Required |
 | `prod_cognito_user_pool_id` | `us-east-1_Prod123` | No | Required; configured separately |
 | `s3_bucket_name` | `qualitypro-docs` | No | Required; shared base name |
+| `s3_force_destroy` | `false` | Yes | Optional; `false`; allow deleting bucket contents during destroy |
 | `appsync_event_api_name` | `["events", "other"]` | Yes | Required; non-empty shared list |
 | `backend_sns_topic_names` | `["notifications", "audit"]` | Yes | Optional; `[]` |
 | `appsync_event_namespace_name` | `events` | No | Optional; `events` |
@@ -119,7 +120,22 @@ kubectl -n istio-system describe ingress app
 
 If the controller reports `failed to refresh cached credentials, no EC2 IMDS role found`, check whether its Pods have `AWS_CONTAINER_CREDENTIALS_FULL_URI`, `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`, and the `eks-pod-identity-token` volume. EKS injects these when each Pod is created. [Pod Identity associations are eventually consistent](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html), so Pods started immediately after association creation can miss this injection and require recreation.
 
-Terraform waits 30 seconds after creating or replacing the controller's Pod Identity association before installing its Helm release. Pod annotations track the association and role, causing a rolling update when they change and when this fix is first applied to an existing installation. This delay mitigates propagation latency; it is not an AWS readiness guarantee. Re-run plan/apply in the same HCP Terraform workspace with its existing state. If Kubernetes access is unavailable, CloudWatch Observability collects controller logs in `/aws/containerinsights/<cluster_name>/application`.
+Terraform waits 30 seconds after creating or replacing the controller's Pod Identity association before installing its Helm release. Pod annotations track the association and role, causing a rolling update when they change and when this fix is first applied to an existing installation. This delay mitigates propagation latency; it is not an AWS readiness guarantee. If Kubernetes access is unavailable, CloudWatch Observability collects controller logs in `/aws/containerinsights/<cluster_name>/application`.
+
+The Kubernetes provider is pinned to `3.2.1`, which [fixes `Unexpected Identity Change` after slow or failed resource creation](https://github.com/hashicorp/terraform-provider-kubernetes/blob/v3.2.1/CHANGELOG.md). Commit `.terraform.lock.hcl` together with `versions.tf` so HCP Terraform installs the matching version.
+
+### Destroy and Deploy Again in HCP Terraform
+
+Use the existing workspace and its state to destroy the old deployment before creating a fresh one. Deleting a workspace or its state does not delete AWS resources and prevents Terraform from tracking them. The following procedure removes resources managed by this project; existing ACM certificates, Cognito pools, DNS records, AWS secrets, and the runner's IAM/OIDC setup are managed separately.
+
+1. Upload the updated configuration and lock file to the existing workspace. In the run's initialization output, verify `hashicorp/kubernetes v3.2.1` is installed. The `Terraform 1.x` line in the plan log identifies the CLI version, not the Kubernetes provider version; edits that exist only locally do not change an HCP run's configuration.
+2. If the current ALB controller Pods lack Pod Identity credentials, first run a targeted plan/apply to update the controller, so it can finalize Ingress/ALB deletion. Temporarily set the workspace **environment variable** `TF_CLI_ARGS_plan` to `-refresh=false -target=helm_release.aws_load_balancer_controller`, queue a normal run using the updated configuration, review and apply it, then remove this environment variable. Skipping refresh avoids the existing Ingress's broken identity during this recovery plan. This is a teardown repair step, not part of a fresh installation.
+3. If the S3 buckets contain data and all of it should be deleted, set the **Terraform variable** `s3_force_destroy` to `true` with HCL enabled. Apply this change before destroy. For this preparation step only, use `TF_CLI_ARGS_plan=-target=aws_s3_bucket.backend`, then remove the environment variable. The option deletes objects and their versions during destroy; the runner also needs permissions to list and delete them, and Object Lock restrictions can still prevent deletion. Empty buckets do not require this step.
+4. In **Settings → Destruction and Deletion**, enable **Allow destroy plans**, then **Queue destroy plan**. If planning still fails while refreshing `kubernetes_ingress_v1.app` with `Unexpected Identity Change`, temporarily set the **environment variable** `TF_CLI_ARGS_plan` to just `-refresh=false` and queue a new destroy plan. Do not leave any `-target` flags on the full destroy run. Skipping refresh plans from the stored state, so review the complete resource list before applying. Review the plan for both `stage` and `prod` and apply it. Wait for successful completion, then remove `TF_CLI_ARGS_plan` before starting a new deployment. The dependencies keep the ALB controller, Pod Identity, nodes, and VPC egress available while Ingress resources are finalized.
+5. Set `s3_force_destroy` back to `false`, ensure `TF_CLI_ARGS_plan` is absent, then queue a normal Plan → Apply in the same workspace. With the managed resources destroyed, this creates a fresh cluster and both application namespaces. No import or state removal is needed.
+6. Update DNS with the new `alb_dns_name` and restore the Istio routing and Argo CD Applications that are configured outside Terraform.
+
+AWS schedules KMS key deletion rather than deleting keys immediately. Container Insights log groups created by the observability agent are also outside Terraform state and may remain after destroy. See [HCP Terraform destruction and deletion](https://developer.hashicorp.com/terraform/cloud-docs/workspaces/settings/deletion) and [targeting a recovery plan](https://developer.hashicorp.com/terraform/cli/commands/plan#resource-targeting).
 
 ## AWS Secrets Manager Integration
 

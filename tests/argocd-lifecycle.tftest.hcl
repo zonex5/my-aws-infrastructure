@@ -88,7 +88,8 @@ run "apply_and_teardown" {
       toset(keys(output.application_pod_identities)) == toset(["stage", "prod"]) &&
       toset(keys(output.s3_bucket_name)) == toset(["stage", "prod"]) &&
       yamldecode(helm_release.argocd.values[0]).createClusterRoles &&
-      helm_release.argocd.namespace == "argocd"
+      helm_release.argocd.namespace == "argocd" &&
+      alltrue([for bucket in aws_s3_bucket.backend : !bucket.force_destroy])
     )
     error_message = "The self-hosted target must use Argo CD's cluster-wide RBAC."
   }
@@ -119,5 +120,23 @@ run "update_prod_cognito_in_existing_cluster" {
       }]
     )
     error_message = "Updating the prod pool must retain the existing shared cluster and both namespaces resource identities."
+  }
+}
+
+run "prepare_disposable_teardown" {
+  command = apply
+
+  variables {
+    prod_cognito_user_pool_id = "us-east-1_Prod456"
+    s3_force_destroy          = true
+  }
+
+  assert {
+    condition = (
+      alltrue([for bucket in aws_s3_bucket.backend : bucket.force_destroy]) &&
+      output.s3_bucket_name == run.update_prod_cognito_in_existing_cluster.s3_bucket_name &&
+      output.cluster_arn == run.update_prod_cognito_in_existing_cluster.cluster_arn
+    )
+    error_message = "Teardown opt-in must update both existing buckets without replacing them or the cluster."
   }
 }

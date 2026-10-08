@@ -7,8 +7,9 @@ terraform {
       version = "= 6.52.0"
     }
     kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = "= 2.38.0"
+      source = "hashicorp/kubernetes"
+      # Includes the SDK fix for empty identities after failed/slow creates.
+      version = "= 3.2.1"
     }
     helm = {
       source  = "hashicorp/helm"

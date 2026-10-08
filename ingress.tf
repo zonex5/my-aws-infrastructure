@@ -21,16 +21,16 @@ resource "kubernetes_ingress_v1" "app" {
     name      = "app"
     namespace = kubernetes_namespace_v1.istio_system.metadata[0].name
     annotations = {
-      "alb.ingress.kubernetes.io/scheme"                    = "internet-facing"
-      "alb.ingress.kubernetes.io/target-type"               = "instance"
-      "alb.ingress.kubernetes.io/certificate-arn"           = var.acm_certificate_arn
-      "alb.ingress.kubernetes.io/listen-ports"              = jsonencode([{ HTTP = 80 }, { HTTPS = 443 }])
-      "alb.ingress.kubernetes.io/ssl-redirect"              = "443"
-      "alb.ingress.kubernetes.io/healthcheck-protocol"      = "HTTP"
-      "alb.ingress.kubernetes.io/healthcheck-path"          = "/healthz/ready"
-      "alb.ingress.kubernetes.io/healthcheck-port"          = tostring(local.ingress_status_node_port)
-      "alb.ingress.kubernetes.io/healthcheck-success-codes" = "200"
-      "alb.ingress.kubernetes.io/subnets"                   = join(",", module.vpc.public_subnets)
+      "alb.ingress.kubernetes.io/scheme"               = "internet-facing"
+      "alb.ingress.kubernetes.io/target-type"          = "instance"
+      "alb.ingress.kubernetes.io/certificate-arn"      = var.acm_certificate_arn
+      "alb.ingress.kubernetes.io/listen-ports"         = jsonencode([{ HTTP = 80 }, { HTTPS = 443 }])
+      "alb.ingress.kubernetes.io/ssl-redirect"         = "443"
+      "alb.ingress.kubernetes.io/healthcheck-protocol" = "HTTP"
+      "alb.ingress.kubernetes.io/healthcheck-path"     = "/healthz/ready"
+      "alb.ingress.kubernetes.io/healthcheck-port"     = tostring(local.ingress_status_node_port)
+      "alb.ingress.kubernetes.io/success-codes"        = "200"
+      "alb.ingress.kubernetes.io/subnets"              = join(",", module.vpc.public_subnets)
     }
   }
 
