@@ -30,7 +30,7 @@ The project does not issue certificates or create DNS records. After deployment,
 
 ### Cognito User Pool
 
-Prepare two separate existing User Pools in the infrastructure region and supply their IDs in `stage_cognito_user_pool_id` and `prod_cognito_user_pool_id`. This must be the pool ID, not its ARN or an App Client ID.
+Set `stage_cognito_user_pool_id` and `prod_cognito_user_pool_id` independently to existing User Pool IDs in the infrastructure region. Both environments may temporarily use the same pool; replace the prod ID when its own pool is ready. This must be the pool ID, not its ARN or an App Client ID.
 
 The project grants each namespace's backend IAM permissions to work with its own pool but does not create or modify the pool itself. User sign-in settings and application client integration remain outside the project's scope.
 
@@ -46,30 +46,32 @@ For local runs, copy `terraform.tfvars.example` to `terraform.tfvars` and fill i
 
 Strings in the table are entered without surrounding quotes with HCL disabled. Enable HCL for lists, booleans, numbers, and `null`, entering only the value, not `key = value`. See [HCP Terraform variable values](https://developer.hashicorp.com/terraform/cloud-docs/variables/managing-variables).
 
+Every variable without a `default` is required and uses `nullable = false`: supply each required value before planning. Variables with defaults remain optional. `node_instance_type` accepts one string, for example `c7i-flex.large` with HCL disabled; Terraform wraps it in a single-element list for the EKS module.
+
 | Variable key | Example value in HCP Terraform | HCL | Required / default |
 | --- | --- | --- | --- |
 | `domain_name` | `["stage.example.com", "prod.example.com", "argocd.example.com"]` | Yes | Required |
 | `argocd_domain_name` | `argocd.example.com` | No | Required |
 | `acm_certificate_arn` | `arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000` | No | Required |
 | `stage_cognito_user_pool_id` | `us-east-1_Stage123` | No | Required |
-| `prod_cognito_user_pool_id` | `us-east-1_Prod123` | No | Required; different from stage |
+| `prod_cognito_user_pool_id` | `us-east-1_Prod123` | No | Required; configured separately |
 | `s3_bucket_name` | `qualitypro-docs` | No | Required; shared base name |
 | `appsync_event_api_name` | `["events", "other"]` | Yes | Required; non-empty shared list |
 | `backend_sns_topic_names` | `["notifications", "audit"]` | Yes | Optional; `[]` |
 | `appsync_event_namespace_name` | `events` | No | Optional; `events` |
-| `aws_region` | `us-east-1` | No | Optional; `us-east-1` |
-| `cluster_name` | `my-cluster` | No | Optional; `cluster-1` |
-| `kubernetes_version` | `1.36` | No | Optional; `1.36` |
+| `aws_region` | `us-east-1` | No | Required |
+| `cluster_name` | `my-cluster` | No | Required |
+| `kubernetes_version` | `1.36` | No | Required |
 | `vpc_cidr` | `10.0.0.0/16` | No | Optional; `10.0.0.0/16` |
 | `public_subnet_cidrs` | `["10.0.0.0/24", "10.0.1.0/24"]` | Yes | Optional; shown value |
 | `private_subnet_cidrs` | `["10.0.10.0/24", "10.0.11.0/24"]` | Yes | Optional; shown value |
 | `nat_gateway_per_az` | `true` | Yes | Optional; `true` |
 | `cluster_endpoint_public_access_cidrs` | `["103.0.13.10/32"]` | Yes | Optional; `["0.0.0.0/0"]`; set trusted CIDRs |
-| `node_instance_types` | `["c7i-flex.large"]` | Yes | Optional; shown value |
+| `node_instance_type` | `c7i-flex.large` | No | Optional; `c7i-flex.large` |
 | `node_capacity_type` | `ON_DEMAND` | No | Optional; `ON_DEMAND` |
-| `node_min_size` | `2` | Yes | Optional; `1` |
-| `node_max_size` | `2` | Yes | Optional; `1` |
-| `node_desired_size` | `2` | Yes | Optional; `1` |
+| `node_min_size` | `2` | Yes | Required |
+| `node_max_size` | `2` | Yes | Required |
+| `node_desired_size` | `2` | Yes | Required |
 | `cloudwatch_log_retention_days` | `30` | Yes | Optional; `30` |
 | `cloudwatch_addon_version` | `null` | Yes | Optional; `null` selects latest compatible build |
 | `external_secrets_secret_arns` | `["arn:aws:secretsmanager:us-east-1:123456789012:secret:stage/*", "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/*"]` | Yes | Optional; `[]` grants both namespace prefixes |
@@ -100,7 +102,7 @@ This creates both sets of resources:
 
 S3 bucket names use `<namespace>-<s3_bucket_name>-<account-id>-<region>`. Terraform appends the current account/region suffix only if the shared value does not already end with that exact suffix. The complete bucket name must fit within 63 characters; with `stage-`, a 12-digit account ID, and `us-east-1`, the base name without the suffix can be at most 34 characters. SNS base names are limited to 70 characters (to allow the SQS `-sub` suffix), and AppSync base names to 44, accounting for the longer `stage-` prefix.
 
-The project creates S3, AppSync, and configured SNS/SQS resources. Each backend receives permissions only for its own S3 bucket, existing Cognito pool, and messaging resources. Each frontend receives permissions only for its own AppSync APIs through Pod Identity. Both roles are bound to ServiceAccounts in their respective namespace. This frontend access is intended for server code, not browser JavaScript. Outputs remain keyed by `stage`/`prod`, with API/topic base names as nested keys.
+The project creates S3, AppSync, and configured SNS/SQS resources. Each backend receives permissions only for its own S3 bucket, configured existing Cognito pool, and messaging resources. Each frontend receives permissions only for its own AppSync APIs through Pod Identity. Both roles are bound to ServiceAccounts in their respective namespace. This frontend access is intended for server code, not browser JavaScript. Outputs remain keyed by `stage`/`prod`, with API/topic base names as nested keys.
 
 Include both application hostnames in `domain_name` and the existing ACM certificate. Configure DNS and the Istio Gateway/VirtualServices separately after Terraform installs Istio and its ingress gateway. `domain_name` controls which hostnames the ALB forwards.
 

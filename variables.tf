@@ -1,24 +1,25 @@
 variable "aws_region" {
   description = "AWS region for all infrastructure."
   type        = string
-  default     = "us-east-1"
+  nullable    = false
 }
 
 variable "cluster_name" {
   description = "Unique EKS cluster name and resource name prefix."
   type        = string
-  default     = "cluster-1"
+  nullable    = false
 }
 
 variable "kubernetes_version" {
   description = "EKS Kubernetes minor version supported by Istio."
   type        = string
-  default     = "1.36"
+  nullable    = false
 }
 
 variable "domain_name" {
   description = "Hostnames forwarded by the shared ALB to the Istio ingress gateway."
   type        = list(string)
+  nullable    = false
 
   validation {
     condition = length(var.domain_name) > 0 && alltrue([
@@ -90,10 +91,16 @@ variable "cloudwatch_addon_version" {
   }
 }
 
-variable "node_instance_types" {
-  description = "Managed node group EC2 instance types."
-  type        = list(string)
-  default     = ["c7i-flex.large"]
+variable "node_instance_type" {
+  description = "Single EC2 instance type for the managed node group. In HCP Terraform, enter with HCL disabled, for example c7i-flex.large."
+  type        = string
+  default     = "c7i-flex.large"
+  nullable    = false
+
+  validation {
+    condition     = length(trimspace(var.node_instance_type)) > 0 && var.node_instance_type == trimspace(var.node_instance_type)
+    error_message = "Provide one EC2 instance type without leading or trailing spaces, such as c7i-flex.large."
+  }
 }
 
 variable "node_capacity_type" {
@@ -110,24 +117,25 @@ variable "node_capacity_type" {
 variable "node_min_size" {
   description = "Managed node group minimum size."
   type        = number
-  default     = 1
+  nullable    = false
 }
 
 variable "node_max_size" {
   description = "Managed node group maximum size."
   type        = number
-  default     = 1
+  nullable    = false
 }
 
 variable "node_desired_size" {
   description = "Managed node group desired size."
   type        = number
-  default     = 1
+  nullable    = false
 }
 
 variable "acm_certificate_arn" {
   description = "ARN of an existing us-east-1 ACM certificate covering the domain."
   type        = string
+  nullable    = false
 
   validation {
     condition     = can(regex("^arn:aws:acm:us-east-1:[0-9]{12}:certificate/[0-9a-f-]+$", var.acm_certificate_arn))
@@ -147,7 +155,7 @@ variable "stage_cognito_user_pool_id" {
 }
 
 variable "prod_cognito_user_pool_id" {
-  description = "Existing Cognito User Pool ID for prod, different from stage. In HCP Terraform, enter as a Terraform string variable with HCL disabled."
+  description = "Existing Cognito User Pool ID for prod, configured separately from stage; may temporarily use the same pool. In HCP Terraform, enter as a Terraform string variable with HCL disabled."
   type        = string
   nullable    = false
 
@@ -156,10 +164,6 @@ variable "prod_cognito_user_pool_id" {
     error_message = "Provide an existing Cognito User Pool ID for prod, such as us-east-1_Prod123; do not use an ARN or App Client ID."
   }
 
-  validation {
-    condition     = var.prod_cognito_user_pool_id != var.stage_cognito_user_pool_id
-    error_message = "Stage and prod must use different existing Cognito User Pool IDs."
-  }
 }
 
 variable "s3_bucket_name" {
@@ -243,6 +247,7 @@ variable "external_secrets_kms_key_arns" {
 variable "argocd_domain_name" {
   description = "Public Argo CD hostname; include it in domain_name and the ACM certificate."
   type        = string
+  nullable    = false
 
   validation {
     condition     = can(regex("^[A-Za-z0-9][A-Za-z0-9.-]*[.][A-Za-z0-9-]+$", var.argocd_domain_name))

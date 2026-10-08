@@ -15,6 +15,12 @@ mock_provider "time" {}
 
 
 variables {
+  aws_region                 = "us-east-1"
+  cluster_name               = "cluster-1"
+  kubernetes_version         = "1.36"
+  node_min_size              = 2
+  node_max_size              = 2
+  node_desired_size          = 2
   domain_name                = ["app.example.com", "argocd.example.com", "api.example.com"]
   argocd_domain_name         = "argocd.example.com"
   acm_certificate_arn        = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
@@ -544,7 +550,7 @@ run "shared_platform_and_cognito_isolation" {
     error_message = "Outputs must expose separately prefixed resources for both stage and prod."
   }
 }
-run "duplicate_cognito_pools" {
+run "shared_cognito_pool_allowed" {
   command = plan
   providers = {
     aws        = aws.offline
@@ -556,7 +562,14 @@ run "duplicate_cognito_pools" {
     stage_cognito_user_pool_id = "us-east-1_Shared123"
     prod_cognito_user_pool_id  = "us-east-1_Shared123"
   }
-  expect_failures = [var.prod_cognito_user_pool_id]
+  assert {
+    condition = alltrue([
+      for namespace in ["stage", "prod"] :
+      toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "CognitoUsersRead"])) ==
+      toset(["arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_Shared123"])
+    ])
+    error_message = "Independently configured stage and prod IDs must support temporarily sharing one Cognito pool."
+  }
 }
 
 run "reordered_lists" {

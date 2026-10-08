@@ -36,6 +36,12 @@ mock_provider "helm" {}
 mock_provider "time" {}
 
 variables {
+  aws_region                 = "us-east-1"
+  cluster_name               = "cluster-1"
+  kubernetes_version         = "1.36"
+  node_min_size              = 2
+  node_max_size              = 2
+  node_desired_size          = 2
   domain_name                = ["app.example.com", "argocd.example.com", "api.example.com"]
   argocd_domain_name         = "argocd.example.com"
   acm_certificate_arn        = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"

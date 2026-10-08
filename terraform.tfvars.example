@@ -1,10 +1,11 @@
 # Copy this file to terraform.tfvars and replace the example resource identifiers.
 # Keep terraform.tfvars out of Git.
-aws_region          = "us-east-1"
-cluster_name        = "my-cluster"
-kubernetes_version  = "1.36"
-domain_name         = ["stage.example.com", "prod.example.com", "argocd.example.com"]
-vpc_cidr            = "10.0.0.0/16"
+# Every variable without a default is required and must not be null.
+aws_region           = "us-east-1"
+cluster_name         = "my-cluster"
+kubernetes_version   = "1.36"
+domain_name          = ["stage.example.com", "prod.example.com", "argocd.example.com"]
+vpc_cidr             = "10.0.0.0/16"
 public_subnet_cidrs  = ["10.0.0.0/24", "10.0.1.0/24"]
 private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
 nat_gateway_per_az   = true
@@ -12,11 +13,12 @@ nat_gateway_per_az   = true
 # Restrict the public EKS API endpoint to your public IP or trusted network CIDRs.
 cluster_endpoint_public_access_cidrs = ["103.0.13.10/32"]
 
-node_instance_types = ["c7i-flex.large"]
-node_capacity_type  = "ON_DEMAND"
-node_min_size       = 2
-node_max_size       = 2
-node_desired_size   = 2
+# In HCP Terraform, enter node_instance_type as a string with HCL disabled.
+node_instance_type = "c7i-flex.large"
+node_capacity_type = "ON_DEMAND"
+node_min_size      = 2
+node_max_size      = 2
+node_desired_size  = 2
 
 # Use an existing ACM certificate covering every hostname in domain_name and one existing Cognito pool per application namespace.
 acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
@@ -33,7 +35,7 @@ argocd_domain_name = "argocd.example.com"
 # Enter these strings in HCP Terraform with HCL disabled (without quotes).
 stage_cognito_user_pool_id = "us-east-1_Stage123"
 prod_cognito_user_pool_id  = "us-east-1_Prod123"
-s3_bucket_name            = "qualitypro-docs"
+s3_bucket_name             = "qualitypro-docs"
 
 # Shared base names: stage-/prod- prefixes are added automatically.
 # S3 also adds <account-id>-<region> unless that exact suffix is already present.
