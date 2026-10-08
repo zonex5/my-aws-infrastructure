@@ -1,21 +1,31 @@
 locals {
-  application_namespace_keys = toset([var.application_namespace])
+  application_namespace_keys = toset(keys(var.application_namespaces))
 
   backend_service_account_name  = "backend-service-account"
   frontend_service_account_name = "frontend-service-account"
 
   backend_topics = {
-    for name in var.backend_sns_topic_names : "${var.application_namespace}/${name}" => {
-      namespace = var.application_namespace
-      name      = "${var.application_namespace}-${name}"
-    }
+    for topic in flatten([
+      for namespace, config in var.application_namespaces : [
+        for name in config.backend_sns_topic_names : {
+          key       = "${namespace}/${name}"
+          namespace = namespace
+          name      = "${namespace}-${name}"
+        }
+      ]
+    ]) : topic.key => topic
   }
 
   frontend_event_apis = {
-    for name in var.appsync_event_api_name : "${var.application_namespace}/${name}" => {
-      namespace = var.application_namespace
-      name      = "${var.application_namespace}-${name}"
-    }
+    for api in flatten([
+      for namespace, config in var.application_namespaces : [
+        for name in config.appsync_event_api_name : {
+          key       = "${namespace}/${name}"
+          namespace = namespace
+          name      = "${namespace}-${name}"
+        }
+      ]
+    ]) : api.key => api
   }
 
   availability_zones = slice(data.aws_availability_zones.available.names, 0, 2)

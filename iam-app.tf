@@ -19,11 +19,11 @@ data "aws_iam_policy_document" "backend" {
   statement {
     sid       = "CognitoUsersRead"
     actions   = ["cognito-idp:AdminGetUser", "cognito-idp:ListUsers"]
-    resources = ["arn:${data.aws_partition.current.partition}:cognito-idp:${var.aws_region}:${data.aws_caller_identity.current.account_id}:userpool/${var.cognito_user_pool_id}"]
+    resources = ["arn:${data.aws_partition.current.partition}:cognito-idp:${var.aws_region}:${data.aws_caller_identity.current.account_id}:userpool/${var.application_namespaces[each.key].cognito_user_pool_id}"]
   }
 
   dynamic "statement" {
-    for_each = length(var.backend_sns_topic_names) > 0 ? [1] : []
+    for_each = length(var.application_namespaces[each.key].backend_sns_topic_names) > 0 ? [1] : []
 
     content {
       sid       = "SnsPublish"
@@ -33,7 +33,7 @@ data "aws_iam_policy_document" "backend" {
   }
 
   dynamic "statement" {
-    for_each = length(var.backend_sns_topic_names) > 0 ? [1] : []
+    for_each = length(var.application_namespaces[each.key].backend_sns_topic_names) > 0 ? [1] : []
 
     content {
       sid = "SqsQueueAccess"

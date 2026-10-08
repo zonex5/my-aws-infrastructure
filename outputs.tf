@@ -81,7 +81,7 @@ output "appsync_event_api_id" {
   description = "AppSync Event API IDs keyed by Kubernetes namespace and API base name."
   value = {
     for namespace in local.application_namespace_keys : namespace => {
-      for name in var.appsync_event_api_name : name => aws_appsync_api.frontend["${namespace}/${name}"].api_id
+      for name in var.application_namespaces[namespace].appsync_event_api_name : name => aws_appsync_api.frontend["${namespace}/${name}"].api_id
     }
   }
 }
@@ -90,7 +90,7 @@ output "appsync_event_api_arn" {
   description = "AppSync Event API ARNs keyed by Kubernetes namespace and API base name."
   value = {
     for namespace in local.application_namespace_keys : namespace => {
-      for name in var.appsync_event_api_name : name => aws_appsync_api.frontend["${namespace}/${name}"].api_arn
+      for name in var.application_namespaces[namespace].appsync_event_api_name : name => aws_appsync_api.frontend["${namespace}/${name}"].api_arn
     }
   }
 }
@@ -99,7 +99,7 @@ output "appsync_event_http_endpoint" {
   description = "AppSync HTTP publish endpoints keyed by Kubernetes namespace and API base name."
   value = {
     for namespace in local.application_namespace_keys : namespace => {
-      for name in var.appsync_event_api_name : name => "https://${aws_appsync_api.frontend["${namespace}/${name}"].dns["HTTP"]}/event"
+      for name in var.application_namespaces[namespace].appsync_event_api_name : name => "https://${aws_appsync_api.frontend["${namespace}/${name}"].dns["HTTP"]}/event"
     }
   }
 }
@@ -108,14 +108,14 @@ output "appsync_event_realtime_endpoint" {
   description = "AppSync IAM WebSocket endpoints keyed by Kubernetes namespace and API base name."
   value = {
     for namespace in local.application_namespace_keys : namespace => {
-      for name in var.appsync_event_api_name : name => "wss://${aws_appsync_api.frontend["${namespace}/${name}"].dns["REALTIME"]}/event/realtime"
+      for name in var.application_namespaces[namespace].appsync_event_api_name : name => "wss://${aws_appsync_api.frontend["${namespace}/${name}"].dns["REALTIME"]}/event/realtime"
     }
   }
 }
 
 output "appsync_event_namespace_name" {
-  description = "Channel namespace created inside each AppSync Event API."
-  value       = var.appsync_event_namespace_name
+  description = "AppSync channel namespace names keyed by Kubernetes application namespace."
+  value       = { for namespace, config in var.application_namespaces : namespace => config.appsync_event_namespace_name }
 }
 
 output "s3_bucket_name" {
@@ -142,7 +142,7 @@ output "backend_sns_topic_arns" {
   description = "Created SNS topic ARNs keyed by Kubernetes namespace and topic base name."
   value = {
     for namespace in local.application_namespace_keys : namespace => {
-      for name in var.backend_sns_topic_names : name => aws_sns_topic.backend["${namespace}/${name}"].arn
+      for name in var.application_namespaces[namespace].backend_sns_topic_names : name => aws_sns_topic.backend["${namespace}/${name}"].arn
     }
   }
 }
@@ -151,7 +151,7 @@ output "backend_sqs_queue_arns" {
   description = "Created SQS queue ARNs keyed by Kubernetes namespace and SNS topic base name."
   value = {
     for namespace in local.application_namespace_keys : namespace => {
-      for name in var.backend_sns_topic_names : name => aws_sqs_queue.backend["${namespace}/${name}"].arn
+      for name in var.application_namespaces[namespace].backend_sns_topic_names : name => aws_sqs_queue.backend["${namespace}/${name}"].arn
     }
   }
 }
@@ -160,7 +160,7 @@ output "backend_sqs_queue_urls" {
   description = "Created SQS queue URLs keyed by Kubernetes namespace and SNS topic base name."
   value = {
     for namespace in local.application_namespace_keys : namespace => {
-      for name in var.backend_sns_topic_names : name => aws_sqs_queue.backend["${namespace}/${name}"].id
+      for name in var.application_namespaces[namespace].backend_sns_topic_names : name => aws_sqs_queue.backend["${namespace}/${name}"].id
     }
   }
 }

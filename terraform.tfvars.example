@@ -1,10 +1,10 @@
 # Copy this file to terraform.tfvars and replace the example resource identifiers.
 # Keep terraform.tfvars out of Git.
-aws_region           = "us-east-1"
-cluster_name         = "my-cluster"
-kubernetes_version   = "1.36"
-domain_name = ["app.example.com", "argocd.example.com", "api.example.com"]
-vpc_cidr             = "10.0.0.0/16"
+aws_region          = "us-east-1"
+cluster_name        = "my-cluster"
+kubernetes_version  = "1.36"
+domain_name         = ["app.example.com", "argocd.example.com", "api.example.com"]
+vpc_cidr            = "10.0.0.0/16"
 public_subnet_cidrs  = ["10.0.0.0/24", "10.0.1.0/24"]
 private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
 nat_gateway_per_az   = true
@@ -18,19 +18,30 @@ node_min_size       = 2
 node_max_size       = 2
 node_desired_size   = 2
 
-# Use an existing ACM certificate covering every hostname in domain_name and an existing Cognito pool.
-acm_certificate_arn  = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
-s3_bucket_name       = "docs"
-cognito_user_pool_id = "us-east-1_Example123"
+# Use an existing ACM certificate covering every hostname in domain_name and one existing Cognito pool per application namespace.
+acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
 
-application_namespace   = "stage"
-backend_sns_topic_names = ["notifications", "audit"]
-appsync_event_api_name  = ["events"]
-
-# Optional: override the default Secrets Manager scope stage/* in this account/region.
+# Optional: override the default Secrets Manager scope <namespace>/* for all application namespaces.
 # external_secrets_secret_arns = ["arn:aws:secretsmanager:us-east-1:123456789012:secret:stage/*"]
 # For secrets encrypted with customer-managed KMS keys, also grant decrypt access.
 # external_secrets_kms_key_arns = ["arn:aws:kms:us-east-1:123456789012:key/00000000-0000-0000-0000-000000000000"]
 
 # Public Argo CD URL hostname; include it in domain_name above.
 argocd_domain_name = "argocd.example.com"
+
+# Start with stage; add prod to this same map and use the same Terraform state.
+application_namespaces = {
+  stage = {
+    cognito_user_pool_id    = "us-east-1_Stage123"
+    s3_bucket_name          = "docs"
+    backend_sns_topic_names = ["notifications", "audit"]
+    appsync_event_api_name  = ["events"]
+  }
+
+  # prod = {
+  #   cognito_user_pool_id    = "us-east-1_Prod123"
+  #   s3_bucket_name          = "docs"
+  #   backend_sns_topic_names = ["notifications", "audit"]
+  #   appsync_event_api_name  = ["events"]
+  # }
+}

@@ -1,9 +1,9 @@
 locals {
   argocd_namespace = "argocd"
-  argocd_read_rules = [{
+  argocd_cluster_rules = [{
     apiGroups = ["*"]
     resources = ["*"]
-    verbs     = ["get", "list", "watch"]
+    verbs     = ["*"]
   }]
 }
 
@@ -27,7 +27,8 @@ resource "helm_release" "argocd" {
   timeout    = 600
 
   values = [yamlencode({
-    fullnameOverride = "argocd"
+    fullnameOverride   = "argocd"
+    createClusterRoles = true
     global = {
       domain = var.argocd_domain_name
     }
@@ -48,7 +49,7 @@ resource "helm_release" "argocd" {
       }
       clusterRoleRules = {
         enabled = true
-        rules   = local.argocd_read_rules
+        rules   = local.argocd_cluster_rules
       }
     }
     server = {
@@ -63,7 +64,7 @@ resource "helm_release" "argocd" {
       }
       clusterRoleRules = {
         enabled = true
-        rules   = local.argocd_read_rules
+        rules   = local.argocd_cluster_rules
       }
     }
   })]

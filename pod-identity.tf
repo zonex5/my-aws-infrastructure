@@ -83,9 +83,9 @@ resource "aws_eks_pod_identity_association" "frontend" {
 
 data "aws_iam_policy_document" "application_pod_identity_trust" {
   for_each = {
-    for component in ["backend", "frontend"] : "${var.application_namespace}/${component}" => {
-      namespace       = var.application_namespace
-      service_account = component == "backend" ? local.backend_service_account_name : local.frontend_service_account_name
+    for identity in setproduct(local.application_namespace_keys, ["backend", "frontend"]) : "${identity[0]}/${identity[1]}" => {
+      namespace       = identity[0]
+      service_account = identity[1] == "backend" ? local.backend_service_account_name : local.frontend_service_account_name
     }
   }
 

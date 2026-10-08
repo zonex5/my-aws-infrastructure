@@ -135,79 +135,74 @@ variable "acm_certificate_arn" {
   }
 }
 
-variable "s3_bucket_name" {
-  description = "Base name for the backend S3 bucket created as <application_namespace>-<s3_bucket_name>-<account-id>-<region>. The full name must not exceed 63 characters."
-  type        = string
+variable "application_namespaces" {
+  description = "Application namespaces sharing this cluster, ALB, Istio and Argo CD. Each namespace has its own existing Cognito pool, S3 bucket, SNS/SQS resources and AppSync Event APIs."
+  type = map(object({
+    cognito_user_pool_id         = string
+    s3_bucket_name               = string
+    backend_sns_topic_names      = optional(list(string), [])
+    appsync_event_api_name       = list(string)
+    appsync_event_namespace_name = optional(string, "events")
+  }))
+  nullable = false
 
   validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$", var.s3_bucket_name))
-    error_message = "Use a 3-40 character lowercase S3 prefix containing only letters, digits, or hyphens; start and end with a letter or digit."
-  }
-}
-
-variable "backend_sns_topic_names" {
-  description = "SNS topic base names created as <application_namespace>-<name>, with an SQS queue <application_namespace>-<name>-sub. Standard topics and queues only."
-  type        = list(string)
-  default     = []
-  nullable    = false
-
-  validation {
-    condition = length(var.backend_sns_topic_names) == length(distinct(var.backend_sns_topic_names)) && alltrue([
-      for name in var.backend_sns_topic_names :
-      can(regex("^[A-Za-z0-9_-]{1,74}$", name))
+    condition = length(var.application_namespaces) > 0 && alltrue([
+      for namespace in keys(var.application_namespaces) :
+      can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", namespace)) &&
+      !startswith(namespace, "kube-") &&
+      !contains(["default", "istio-system", "argocd", "amazon-cloudwatch", "external-secrets"], namespace)
     ])
-    error_message = "Provide unique SNS topic base names of 1-74 letters, digits, hyphens, or underscores. The namespace-prefixed SQS queue name must also fit within 80 characters."
+    error_message = "Provide at least one application namespace: 1-63 lowercase letters, digits, or hyphens, starting and ending with a letter or digit. System namespaces are not allowed."
   }
-}
-
-variable "application_namespace" {
-  description = "Single Kubernetes application namespace with Istio injection, backend/frontend IAM roles and Pod Identity associations. Also prefixes the S3 bucket, SNS/SQS and AppSync resource names."
-  type        = string
-  default     = "stage"
-  nullable    = false
 
   validation {
-    condition = (
-      can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", var.application_namespace)) &&
-      !startswith(var.application_namespace, "kube-") &&
-      !contains(["default", "istio-system", "argocd", "amazon-cloudwatch", "external-secrets"], var.application_namespace)
-    )
-    error_message = "Provide one Kubernetes namespace name: 1-63 lowercase letters, digits, or hyphens, starting and ending with a letter or digit. System namespaces are not allowed."
-  }
-}
-
-variable "appsync_event_api_name" {
-  description = "AppSync Event API base names created as <application_namespace>-<name>, accessible only to the application namespace's frontend pod role."
-  type        = list(string)
-  nullable    = false
-
-  validation {
-    condition = length(var.appsync_event_api_name) > 0 && length(var.appsync_event_api_name) == length(distinct(var.appsync_event_api_name)) && alltrue([
-      for name in var.appsync_event_api_name : can(regex("^[A-Za-z0-9_ -]{1,48}$", name)) && name == trimspace(name) && length(name) > 0
+    condition = alltrue([
+      for config in values(var.application_namespaces) :
+      can(regex("^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$", config.s3_bucket_name))
     ])
-    error_message = "Provide a non-empty list of unique AppSync API base names: 1-48 letters, digits, underscores, hyphens, or spaces, without leading or trailing spaces. The namespace-prefixed API name must also fit within 50 characters."
+    error_message = "Each s3_bucket_name must be a 3-40 character lowercase S3 prefix containing only letters, digits, or hyphens; start and end with a letter or digit."
   }
-}
-
-variable "appsync_event_namespace_name" {
-  description = "Channel namespace accessible to frontend pods in the AppSync Event API."
-  type        = string
-  default     = "events"
-  nullable    = false
 
   validation {
-    condition     = can(regex("^[A-Za-z0-9]([A-Za-z0-9-]{0,48}[A-Za-z0-9])?$", var.appsync_event_namespace_name))
-    error_message = "Use 1-50 letters, digits, or hyphens; start and end with a letter or digit."
+    condition = alltrue([
+      for config in values(var.application_namespaces) :
+      length(config.backend_sns_topic_names) == length(distinct(config.backend_sns_topic_names)) && alltrue([
+        for name in config.backend_sns_topic_names : can(regex("^[A-Za-z0-9_-]{1,74}$", name))
+      ])
+    ])
+    error_message = "Each backend_sns_topic_names list must contain unique base names of 1-74 letters, digits, hyphens, or underscores. The generated SQS queue name must fit within 80 characters."
   }
-}
 
-variable "cognito_user_pool_id" {
-  description = "ID of an existing Cognito User Pool in us-east-1."
-  type        = string
+  validation {
+    condition = alltrue([
+      for config in values(var.application_namespaces) :
+      length(config.appsync_event_api_name) > 0 && length(config.appsync_event_api_name) == length(distinct(config.appsync_event_api_name)) && alltrue([
+        for name in config.appsync_event_api_name : can(regex("^[A-Za-z0-9_ -]{1,48}$", name)) && name == trimspace(name)
+      ])
+    ])
+    error_message = "Each appsync_event_api_name must be a non-empty list of unique 1-48 character base names: letters, digits, underscores, hyphens, or spaces, without leading or trailing spaces. The generated API name must fit within 50 characters."
+  }
+
+  validation {
+    condition = alltrue([
+      for config in values(var.application_namespaces) :
+      can(regex("^[A-Za-z0-9]([A-Za-z0-9-]{0,48}[A-Za-z0-9])?$", config.appsync_event_namespace_name))
+    ])
+    error_message = "Each appsync_event_namespace_name must use 1-50 letters, digits, or hyphens; start and end with a letter or digit."
+  }
+
+  validation {
+    condition = alltrue([
+      for config in values(var.application_namespaces) :
+      can(regex("^[a-z]{2}(-[a-z]+)+-[0-9]+_[A-Za-z0-9]+$", config.cognito_user_pool_id))
+    ]) && length(distinct([for config in values(var.application_namespaces) : config.cognito_user_pool_id])) == length(var.application_namespaces)
+    error_message = "Provide a distinct existing Cognito User Pool ID for each namespace, such as us-east-1_Example123; do not use an ARN or App Client ID."
+  }
 }
 
 variable "external_secrets_secret_arns" {
-  description = "Secrets Manager secret ARNs or ARN patterns readable by External Secrets Operator. Empty defaults to <application_namespace>/* in this AWS account and region."
+  description = "Secrets Manager secret ARNs or ARN patterns readable by External Secrets Operator. Empty defaults to <namespace>/* for every application namespace in this AWS account and region."
   type        = list(string)
   default     = []
   nullable    = false

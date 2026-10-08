@@ -2,7 +2,8 @@ locals {
   external_secrets_namespace            = "external-secrets"
   external_secrets_service_account_name = "external-secrets"
   external_secrets_secret_arns = length(var.external_secrets_secret_arns) > 0 ? var.external_secrets_secret_arns : [
-    "arn:${data.aws_partition.current.partition}:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${var.application_namespace}/*"
+    for namespace in sort(tolist(local.application_namespace_keys)) :
+    "arn:${data.aws_partition.current.partition}:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${namespace}/*"
   ]
 }
 

@@ -1,5 +1,5 @@
 # Exercise apply and teardown in a temporary test state using only mocked APIs.
-# This verifies that the namespace -> Helm -> RBAC -> Secret dependencies can be
+# This verifies that the namespace -> Helm (including RBAC) -> Secret dependencies can be
 # reversed during destroy without creating live infrastructure.
 mock_provider "aws" {
   mock_data "aws_caller_identity" {
@@ -38,13 +38,16 @@ mock_provider "time" {}
 variables {
   domain_name              = ["app.example.com", "argocd.example.com", "api.example.com"]
   argocd_domain_name       = "argocd.example.com"
-  application_namespace    = "stage"
-  backend_sns_topic_names  = []
-  appsync_event_api_name   = ["events"]
   acm_certificate_arn      = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
-  s3_bucket_name           = "test-docs"
-  cognito_user_pool_id     = "us-east-1_testing"
   cloudwatch_addon_version = "v5.0.0-eksbuild.1"
+  application_namespaces = {
+    "stage" = {
+      s3_bucket_name          = "test-docs"
+      cognito_user_pool_id    = "us-east-1_testing"
+      backend_sns_topic_names = []
+      appsync_event_api_name  = ["events"]
+    }
+  }
 }
 
 override_module {
@@ -79,9 +82,45 @@ run "apply_and_teardown" {
   assert {
     condition = (
       output.argocd_cluster_name == "in-cluster" &&
-      kubernetes_role_binding_v1.argocd_deploy.metadata[0].namespace == "stage" &&
+      yamldecode(helm_release.argocd.values[0]).createClusterRoles &&
       helm_release.argocd.namespace == "argocd"
     )
-    error_message = "The self-hosted target and RBAC must use the Argo CD and application namespaces."
+    error_message = "The self-hosted target must use Argo CD's cluster-wide RBAC."
+  }
+}
+
+run "add_prod_to_existing_cluster" {
+  command = apply
+
+  variables {
+    application_namespaces = {
+      stage = {
+        cognito_user_pool_id   = "us-east-1_testing"
+        s3_bucket_name         = "test-docs"
+        appsync_event_api_name = ["events"]
+      }
+      prod = {
+        cognito_user_pool_id   = "us-east-1_Prod123"
+        s3_bucket_name         = "reports"
+        appsync_event_api_name = ["events"]
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      output.cluster_arn == run.apply_and_teardown.cluster_arn &&
+      output.argocd_cluster_name == run.apply_and_teardown.argocd_cluster_name &&
+      output.application_pod_identities.stage == run.apply_and_teardown.application_pod_identities.stage &&
+      output.s3_bucket_name.stage == run.apply_and_teardown.s3_bucket_name.stage &&
+      output.appsync_event_api_id.stage == run.apply_and_teardown.appsync_event_api_id.stage &&
+      yamldecode(helm_release.argocd.values[0]).createClusterRoles &&
+      yamldecode(helm_release.argocd.values[0]).controller.clusterRoleRules.rules == [{
+        apiGroups = ["*"]
+        resources = ["*"]
+        verbs     = ["*"]
+      }]
+    )
+    error_message = "Adding prod must retain the existing cluster registration and stage resource identities."
   }
 }
