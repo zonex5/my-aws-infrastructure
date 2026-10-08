@@ -15,18 +15,15 @@ mock_provider "time" {}
 
 
 variables {
-  domain_name              = ["app.example.com", "argocd.example.com", "api.example.com"]
-  argocd_domain_name       = "argocd.example.com"
-  acm_certificate_arn      = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
-  cloudwatch_addon_version = "v5.0.0-eksbuild.1"
-  application_namespaces = {
-    "stage" = {
-      s3_bucket_name          = "test-docs"
-      cognito_user_pool_id    = "us-east-1_testing"
-      backend_sns_topic_names = ["notifications", "audit"]
-      appsync_event_api_name  = ["events", "other"]
-    }
-  }
+  domain_name                = ["app.example.com", "argocd.example.com", "api.example.com"]
+  argocd_domain_name         = "argocd.example.com"
+  acm_certificate_arn        = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+  cloudwatch_addon_version   = "v5.0.0-eksbuild.1"
+  s3_bucket_name             = "test-docs"
+  stage_cognito_user_pool_id = "us-east-1_testing"
+  prod_cognito_user_pool_id  = "us-east-1_Prod123"
+  backend_sns_topic_names    = ["notifications", "audit"]
+  appsync_event_api_name     = ["events", "other"]
 }
 
 override_module {
@@ -228,7 +225,7 @@ run "external_secrets_default_scope" {
   assert {
     condition = (
       length(jsondecode(data.aws_iam_policy_document.external_secrets.json).Statement) == 1 &&
-      jsondecode(data.aws_iam_policy_document.external_secrets.json).Statement[0].Resource == "arn:aws:secretsmanager:us-east-1:123456789012:secret:stage/*" &&
+      toset(jsondecode(data.aws_iam_policy_document.external_secrets.json).Statement[0].Resource) == toset(["arn:aws:secretsmanager:us-east-1:123456789012:secret:stage/*", "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/*"]) &&
       toset(jsondecode(data.aws_iam_policy_document.external_secrets.json).Statement[0].Action) == toset([
         "secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret",
         "secretsmanager:GetResourcePolicy", "secretsmanager:ListSecretVersionIds"
@@ -270,27 +267,6 @@ run "external_secrets_custom_scope" {
     )
     error_message = "Explicit secret ARNs must replace the default scope and KMS decrypt must be limited to Secrets Manager."
   }
-}
-
-run "external_secrets_namespace_reserved" {
-  command = plan
-  providers = {
-    aws        = aws.offline
-    kubernetes = kubernetes
-    helm       = helm
-    time       = time
-  }
-  variables {
-    application_namespaces = {
-      "external-secrets" = {
-        s3_bucket_name          = "test-docs"
-        cognito_user_pool_id    = "us-east-1_testing"
-        backend_sns_topic_names = ["notifications", "audit"]
-        appsync_event_api_name  = ["events", "other"]
-      }
-    }
-  }
-  expect_failures = [var.application_namespaces]
 }
 
 run "argocd_cluster_access" {
@@ -349,7 +325,7 @@ run "argocd_cluster_access" {
     error_message = "Argo CD must expose an HTTP ClusterIP service, with all configured domains forwarded by the shared ALB to Istio."
   }
 }
-run "stage_namespace" {
+run "stage_and_prod_namespaces" {
   command = plan
   providers = {
     aws        = aws.offline
@@ -360,22 +336,22 @@ run "stage_namespace" {
 
   assert {
     condition = (
-      toset([for resource in kubernetes_namespace_v1.application : resource.metadata[0].name]) == toset([keys(var.application_namespaces)[0]]) &&
-      length(aws_s3_bucket.backend) == 1 &&
-      length(aws_iam_role.backend) == 1 && length(aws_iam_role.frontend) == 1 &&
-      length(aws_iam_role_policy_attachment.backend) == 1 && length(aws_iam_role_policy_attachment.frontend) == 1 &&
-      length(kubernetes_service_account_v1.backend) == 1 && length(kubernetes_service_account_v1.frontend) == 1 &&
-      length(aws_eks_pod_identity_association.backend) == 1 && length(aws_eks_pod_identity_association.frontend) == 1 &&
-      toset([for topic in aws_sns_topic.backend : topic.name]) == toset(["${keys(var.application_namespaces)[0]}-notifications", "${keys(var.application_namespaces)[0]}-audit"]) &&
-      toset([for queue in aws_sqs_queue.backend : queue.name]) == toset(["${keys(var.application_namespaces)[0]}-notifications-sub", "${keys(var.application_namespaces)[0]}-audit-sub"]) &&
-      toset([for api in aws_appsync_api.frontend : api.name]) == toset(["${keys(var.application_namespaces)[0]}-events", "${keys(var.application_namespaces)[0]}-other"])
+      toset([for resource in kubernetes_namespace_v1.application : resource.metadata[0].name]) == toset(["stage", "prod"]) &&
+      length(aws_s3_bucket.backend) == 2 &&
+      length(aws_iam_role.backend) == 2 && length(aws_iam_role.frontend) == 2 &&
+      length(aws_iam_role_policy_attachment.backend) == 2 && length(aws_iam_role_policy_attachment.frontend) == 2 &&
+      length(kubernetes_service_account_v1.backend) == 2 && length(kubernetes_service_account_v1.frontend) == 2 &&
+      length(aws_eks_pod_identity_association.backend) == 2 && length(aws_eks_pod_identity_association.frontend) == 2 &&
+      toset([for topic in aws_sns_topic.backend : topic.name]) == toset(["stage-notifications", "stage-audit", "prod-notifications", "prod-audit"]) &&
+      toset([for queue in aws_sqs_queue.backend : queue.name]) == toset(["stage-notifications-sub", "stage-audit-sub", "prod-notifications-sub", "prod-audit-sub"]) &&
+      toset([for api in aws_appsync_api.frontend : api.name]) == toset(["stage-events", "stage-other", "prod-events", "prod-other"])
     )
-    error_message = "Exactly one application namespace must get every requested topic, queue and API with its namespace prefix."
+    error_message = "Stage and prod must both receive every shared base name with their own namespace prefix."
   }
 
   assert {
     condition = alltrue([
-      for namespace in keys(var.application_namespaces) :
+      for namespace in keys(local.application_namespaces) :
       toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "SnsPublish"])) ==
       toset(["arn:aws:sns:us-east-1:123456789012:${namespace}-notifications", "arn:aws:sns:us-east-1:123456789012:${namespace}-audit"])
     ])
@@ -384,7 +360,7 @@ run "stage_namespace" {
 
   assert {
     condition = alltrue([
-      for namespace in keys(var.application_namespaces) :
+      for namespace in keys(local.application_namespaces) :
       toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "SqsQueueAccess"])) ==
       toset(["arn:aws:sqs:us-east-1:123456789012:${namespace}-notifications-sub", "arn:aws:sqs:us-east-1:123456789012:${namespace}-audit-sub"])
     ])
@@ -393,7 +369,7 @@ run "stage_namespace" {
 
   assert {
     condition = alltrue([
-      for namespace in keys(var.application_namespaces) :
+      for namespace in keys(local.application_namespaces) :
       toset(flatten([for s in data.aws_iam_policy_document.frontend[namespace].statement : s.resources if s.sid == "AppSyncEventConnect"])) ==
       toset(["arn:aws:appsync:us-east-1:123456789012:apis/${namespace}events", "arn:aws:appsync:us-east-1:123456789012:apis/${namespace}other"]) &&
       toset(flatten([for s in data.aws_iam_policy_document.frontend[namespace].statement : s.resources if s.sid == "AppSyncEventPublishAndSubscribe"])) ==
@@ -404,11 +380,11 @@ run "stage_namespace" {
 
   assert {
     condition = alltrue([
-      for namespace in keys(var.application_namespaces) :
+      for namespace in keys(local.application_namespaces) :
       toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources])) == toset([
         "arn:aws:s3:::${namespace}-test-docs-123456789012-us-east-1",
         "arn:aws:s3:::${namespace}-test-docs-123456789012-us-east-1/*",
-        "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_testing",
+        "arn:aws:cognito-idp:us-east-1:123456789012:userpool/${namespace == "stage" ? var.stage_cognito_user_pool_id : var.prod_cognito_user_pool_id}",
         "arn:aws:sns:us-east-1:123456789012:${namespace}-notifications",
         "arn:aws:sns:us-east-1:123456789012:${namespace}-audit",
         "arn:aws:sqs:us-east-1:123456789012:${namespace}-notifications-sub",
@@ -427,7 +403,7 @@ run "stage_namespace" {
 
   assert {
     condition = alltrue([
-      for namespace in keys(var.application_namespaces) :
+      for namespace in keys(local.application_namespaces) :
       aws_s3_bucket.backend[namespace].bucket == "${namespace}-test-docs-123456789012-us-east-1" &&
       toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "S3BucketMetadata"])) ==
       toset(["arn:aws:s3:::${namespace}-test-docs-123456789012-us-east-1"]) &&
@@ -476,7 +452,7 @@ run "stage_namespace" {
 
   assert {
     condition = alltrue([
-      for namespace in keys(var.application_namespaces) :
+      for namespace in keys(local.application_namespaces) :
       aws_eks_pod_identity_association.backend[namespace].role_arn == "arn:aws:iam::123456789012:role/cluster-1-${namespace}-backend-pod" &&
       aws_eks_pod_identity_association.frontend[namespace].role_arn == "arn:aws:iam::123456789012:role/cluster-1-${namespace}-frontend-pod" &&
       aws_eks_pod_identity_association.backend[namespace].service_account == "backend-service-account" &&
@@ -510,16 +486,16 @@ run "stage_namespace" {
 
   assert {
     condition = (
-      output.backend_sns_topic_arns[keys(var.application_namespaces)[0]].notifications == "arn:aws:sns:us-east-1:123456789012:${keys(var.application_namespaces)[0]}-notifications" &&
-      output.backend_sqs_queue_urls[keys(var.application_namespaces)[0]].audit == "https://sqs.us-east-1.amazonaws.com/123456789012/${keys(var.application_namespaces)[0]}-audit-sub" &&
-      output.appsync_event_http_endpoint[keys(var.application_namespaces)[0]].events == "https://${keys(var.application_namespaces)[0]}-events.example.test/event" &&
-      output.appsync_event_realtime_endpoint[keys(var.application_namespaces)[0]].other == "wss://${keys(var.application_namespaces)[0]}-other-realtime.example.test/event/realtime"
+      output.backend_sns_topic_arns[keys(local.application_namespaces)[0]].notifications == "arn:aws:sns:us-east-1:123456789012:${keys(local.application_namespaces)[0]}-notifications" &&
+      output.backend_sqs_queue_urls[keys(local.application_namespaces)[0]].audit == "https://sqs.us-east-1.amazonaws.com/123456789012/${keys(local.application_namespaces)[0]}-audit-sub" &&
+      output.appsync_event_http_endpoint[keys(local.application_namespaces)[0]].events == "https://${keys(local.application_namespaces)[0]}-events.example.test/event" &&
+      output.appsync_event_realtime_endpoint[keys(local.application_namespaces)[0]].other == "wss://${keys(local.application_namespaces)[0]}-other-realtime.example.test/event/realtime"
     )
     error_message = "Application configuration outputs must be keyed by namespace and base name."
   }
 }
 
-run "shared_stage_and_prod" {
+run "shared_platform_and_cognito_isolation" {
   command = plan
   providers = {
     aws        = aws.offline
@@ -528,103 +504,22 @@ run "shared_stage_and_prod" {
     time       = time
   }
 
-  variables {
-    application_namespaces = {
-      stage = {
-        cognito_user_pool_id    = "us-east-1_Stage123"
-        s3_bucket_name          = "test-docs"
-        backend_sns_topic_names = ["notifications", "audit"]
-        appsync_event_api_name  = ["events", "other"]
-      }
-      prod = {
-        cognito_user_pool_id         = "us-east-1_Prod123"
-        s3_bucket_name               = "reports"
-        backend_sns_topic_names      = []
-        appsync_event_api_name       = ["other"]
-        appsync_event_namespace_name = "updates"
-      }
-    }
-  }
-
-  override_resource {
-    target          = aws_s3_bucket.backend["prod"]
-    override_during = plan
-    values = {
-      id  = "prod-reports-123456789012-us-east-1"
-      arn = "arn:aws:s3:::prod-reports-123456789012-us-east-1"
-    }
-  }
-
-  override_resource {
-    target          = aws_appsync_channel_namespace.frontend["prod/other"]
-    override_during = plan
-    values = {
-      channel_namespace_arn = "arn:aws:appsync:us-east-1:123456789012:apis/prodother/channelNamespace/updates"
-    }
-  }
-
   assert {
     condition = (
       toset(keys(kubernetes_namespace_v1.application)) == toset(["stage", "prod"]) &&
-      length(aws_s3_bucket.backend) == 2 &&
-      length(aws_iam_role.backend) == 2 && length(aws_iam_role.frontend) == 2 &&
-      length(aws_eks_pod_identity_association.backend) == 2 && length(aws_eks_pod_identity_association.frontend) == 2 &&
-      toset(keys(aws_sns_topic.backend)) == toset(["stage/notifications", "stage/audit"]) &&
-      toset(keys(aws_sqs_queue.backend)) == toset(["stage/notifications", "stage/audit"]) &&
-      toset(keys(aws_appsync_api.frontend)) == toset(["stage/events", "stage/other", "prod/other"])
-    )
-    error_message = "Both namespaces must coexist and receive only their individually configured resources."
-  }
-
-  assert {
-    condition = alltrue([
-      for namespace, config in var.application_namespaces :
-      aws_s3_bucket.backend[namespace].bucket == "${namespace}-${config.s3_bucket_name}-123456789012-us-east-1" &&
-      toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "CognitoUsersRead"])) ==
-      toset(["arn:aws:cognito-idp:us-east-1:123456789012:userpool/${config.cognito_user_pool_id}"]) &&
-      toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "S3Objects"])) ==
-      toset(["arn:aws:s3:::${namespace}-${config.s3_bucket_name}-123456789012-us-east-1/*"])
-      ]) && alltrue([
-      for statement in data.aws_iam_policy_document.backend["prod"].statement :
-      !startswith(statement.sid, "Sns") && !startswith(statement.sid, "Sqs")
-      ]) && toset(flatten([
-        for s in data.aws_iam_policy_document.backend["stage"].statement : s.resources if s.sid == "SnsPublish"
-      ])) == toset([
-      "arn:aws:sns:us-east-1:123456789012:stage-notifications",
-      "arn:aws:sns:us-east-1:123456789012:stage-audit"
-    ])
-    error_message = "Cognito, S3 and messaging permissions must follow each namespace's configuration and exclude the other namespace."
-  }
-
-  assert {
-    condition = (
-      toset(flatten([for s in data.aws_iam_policy_document.frontend["prod"].statement : s.resources])) == toset([
-        "arn:aws:appsync:us-east-1:123456789012:apis/prodother",
-        "arn:aws:appsync:us-east-1:123456789012:apis/prodother/channelNamespace/updates"
+      alltrue([
+        for namespace in ["stage", "prod"] :
+        toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "CognitoUsersRead"])) ==
+        toset(["arn:aws:cognito-idp:us-east-1:123456789012:userpool/${namespace == "stage" ? var.stage_cognito_user_pool_id : var.prod_cognito_user_pool_id}"]) &&
+        toset(keys(output.appsync_event_api_id[namespace])) == toset(["events", "other"]) &&
+        toset(keys(output.backend_sns_topic_arns[namespace])) == toset(["notifications", "audit"]) &&
+        output.s3_bucket_name[namespace] == "${namespace}-test-docs-123456789012-us-east-1" &&
+        aws_eks_pod_identity_association.backend[namespace].cluster_name == "cluster-1" &&
+        aws_eks_pod_identity_association.backend[namespace].namespace == namespace &&
+        jsondecode(data.aws_iam_policy_document.application_pod_identity_trust["${namespace}/backend"].json).Statement[0].Condition.StringEquals["aws:RequestTag/kubernetes-namespace"] == namespace &&
+        jsondecode(data.aws_iam_policy_document.application_pod_identity_trust["${namespace}/frontend"].json).Statement[0].Condition.StringEquals["aws:RequestTag/kubernetes-namespace"] == namespace
       ]) &&
-      toset(flatten([for s in data.aws_iam_policy_document.frontend["stage"].statement : s.resources])) == toset([
-        "arn:aws:appsync:us-east-1:123456789012:apis/stageevents",
-        "arn:aws:appsync:us-east-1:123456789012:apis/stageother",
-        "arn:aws:appsync:us-east-1:123456789012:apis/stageevents/channelNamespace/events",
-        "arn:aws:appsync:us-east-1:123456789012:apis/stageother/channelNamespace/events"
-      ]) &&
-      output.appsync_event_namespace_name == { stage = "events", prod = "updates" } &&
-      toset(keys(output.appsync_event_api_id.prod)) == toset(["other"]) &&
-      length(output.backend_sns_topic_arns.prod) == 0 &&
-      length(output.backend_sqs_queue_urls.prod) == 0 &&
-      output.s3_bucket_name.prod == "prod-reports-123456789012-us-east-1"
-    )
-    error_message = "AppSync permissions, channels and outputs must remain specific to each namespace."
-  }
-
-  assert {
-    condition = alltrue([
-      for namespace in keys(var.application_namespaces) :
-      aws_eks_pod_identity_association.backend[namespace].cluster_name == "cluster-1" &&
-      aws_eks_pod_identity_association.backend[namespace].namespace == namespace &&
-      jsondecode(data.aws_iam_policy_document.application_pod_identity_trust["${namespace}/backend"].json).Statement[0].Condition.StringEquals["aws:RequestTag/kubernetes-namespace"] == namespace &&
-      jsondecode(data.aws_iam_policy_document.application_pod_identity_trust["${namespace}/frontend"].json).Statement[0].Condition.StringEquals["aws:RequestTag/kubernetes-namespace"] == namespace
-      ]) && (
+      output.appsync_event_namespace_name == { stage = "events", prod = "events" } &&
       kubernetes_secret_v1.argocd_cluster.metadata[0].name == "in-cluster" &&
       helm_release.argocd.name == "argocd" &&
       helm_release.istiod.name == "istiod" &&
@@ -635,10 +530,20 @@ run "shared_stage_and_prod" {
         "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/*"
       ])
     )
-    error_message = "Both namespaces must use the shared cluster and platform with namespace-specific Pod Identity."
+    error_message = "Both environments must share one platform, use identical resource base names, and have access only to their own Cognito pool."
+  }
+
+  assert {
+    condition = alltrue([
+      for namespace in ["stage", "prod"] :
+      output.backend_sns_topic_arns[namespace].notifications == "arn:aws:sns:us-east-1:123456789012:${namespace}-notifications" &&
+      output.backend_sqs_queue_urls[namespace].audit == "https://sqs.us-east-1.amazonaws.com/123456789012/${namespace}-audit-sub" &&
+      output.appsync_event_http_endpoint[namespace].events == "https://${namespace}-events.example.test/event" &&
+      output.appsync_event_realtime_endpoint[namespace].other == "wss://${namespace}-other-realtime.example.test/event/realtime"
+    ])
+    error_message = "Outputs must expose separately prefixed resources for both stage and prod."
   }
 }
-
 run "duplicate_cognito_pools" {
   command = plan
   providers = {
@@ -648,120 +553,10 @@ run "duplicate_cognito_pools" {
     time       = time
   }
   variables {
-    application_namespaces = {
-      stage = {
-        cognito_user_pool_id   = "us-east-1_Shared123"
-        s3_bucket_name         = "docs"
-        appsync_event_api_name = ["events"]
-      }
-      prod = {
-        cognito_user_pool_id   = "us-east-1_Shared123"
-        s3_bucket_name         = "docs"
-        appsync_event_api_name = ["events"]
-      }
-    }
+    stage_cognito_user_pool_id = "us-east-1_Shared123"
+    prod_cognito_user_pool_id  = "us-east-1_Shared123"
   }
-  expect_failures = [var.application_namespaces]
-}
-
-run "prod_namespace" {
-  command = plan
-  providers = {
-    aws        = aws.offline
-    kubernetes = kubernetes
-    helm       = helm
-    time       = time
-  }
-
-  variables {
-    application_namespaces = {
-      "prod" = {
-        s3_bucket_name          = "test-docs"
-        cognito_user_pool_id    = "us-east-1_testing"
-        backend_sns_topic_names = ["notifications", "audit"]
-        appsync_event_api_name  = ["events", "other"]
-      }
-    }
-  }
-
-  assert {
-    condition = (
-      yamldecode(helm_release.argocd.values[0]).createClusterRoles &&
-      yamldecode(helm_release.argocd.values[0]).controller.clusterRoleRules.rules == [{
-        apiGroups = ["*"]
-        resources = ["*"]
-        verbs     = ["*"]
-      }]
-    )
-    error_message = "Changing application_namespaces must retain Argo CD's cluster-wide deployment permissions."
-  }
-
-  assert {
-    condition = (
-      toset([for resource in kubernetes_namespace_v1.application : resource.metadata[0].name]) == toset([keys(var.application_namespaces)[0]]) &&
-      toset([for topic in aws_sns_topic.backend : topic.name]) == toset(["${keys(var.application_namespaces)[0]}-notifications", "${keys(var.application_namespaces)[0]}-audit"]) &&
-      toset([for queue in aws_sqs_queue.backend : queue.name]) == toset(["${keys(var.application_namespaces)[0]}-notifications-sub", "${keys(var.application_namespaces)[0]}-audit-sub"]) &&
-      toset([for api in aws_appsync_api.frontend : api.name]) == toset(["${keys(var.application_namespaces)[0]}-events", "${keys(var.application_namespaces)[0]}-other"])
-    )
-    error_message = "Exactly one application namespace must get every requested topic, queue and API with its namespace prefix."
-  }
-
-  assert {
-    condition = alltrue([
-      for namespace in keys(var.application_namespaces) :
-      toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources])) == toset([
-        "arn:aws:s3:::${namespace}-test-docs-123456789012-us-east-1",
-        "arn:aws:s3:::${namespace}-test-docs-123456789012-us-east-1/*",
-        "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_testing",
-        "arn:aws:sns:us-east-1:123456789012:${namespace}-notifications",
-        "arn:aws:sns:us-east-1:123456789012:${namespace}-audit",
-        "arn:aws:sqs:us-east-1:123456789012:${namespace}-notifications-sub",
-        "arn:aws:sqs:us-east-1:123456789012:${namespace}-audit-sub",
-      ]) && toset(flatten([for s in data.aws_iam_policy_document.frontend[namespace].statement : s.actions])) ==
-      toset(["appsync:EventConnect", "appsync:EventPublish", "appsync:EventSubscribe"]) &&
-      toset(flatten([for s in data.aws_iam_policy_document.frontend[namespace].statement : s.resources])) == toset([
-        "arn:aws:appsync:us-east-1:123456789012:apis/${namespace}events",
-        "arn:aws:appsync:us-east-1:123456789012:apis/${namespace}other",
-        "arn:aws:appsync:us-east-1:123456789012:apis/${namespace}events/channelNamespace/events",
-        "arn:aws:appsync:us-east-1:123456789012:apis/${namespace}other/channelNamespace/events",
-      ])
-    ])
-    error_message = "No extra policy statement may grant access to another environment or add wildcard AppSync actions."
-  }
-
-  assert {
-    condition = alltrue([
-      for key, document in data.aws_iam_policy_document.application_pod_identity_trust :
-      jsondecode(document.json).Statement[0].Principal.Service == "pods.eks.amazonaws.com" &&
-      jsondecode(document.json).Statement[0].Condition.StringEquals["aws:RequestTag/eks-cluster-arn"] == "arn:aws:eks:us-east-1:123456789012:cluster/cluster-1" &&
-      jsondecode(document.json).Statement[0].Condition.StringEquals["aws:RequestTag/kubernetes-namespace"] == split("/", key)[0] &&
-      jsondecode(document.json).Statement[0].Condition.StringEquals["aws:RequestTag/kubernetes-service-account"] == "${split("/", key)[1]}-service-account"
-    ])
-    error_message = "Every role trust policy must reject a different cluster, namespace or ServiceAccount."
-  }
-
-  assert {
-    condition = alltrue([
-      for namespace in keys(var.application_namespaces) :
-      aws_eks_pod_identity_association.backend[namespace].role_arn == "arn:aws:iam::123456789012:role/cluster-1-${namespace}-backend-pod" &&
-      aws_eks_pod_identity_association.frontend[namespace].role_arn == "arn:aws:iam::123456789012:role/cluster-1-${namespace}-frontend-pod" &&
-      aws_eks_pod_identity_association.backend[namespace].service_account == "backend-service-account" &&
-      aws_eks_pod_identity_association.frontend[namespace].service_account == "frontend-service-account" &&
-      !aws_eks_pod_identity_association.backend[namespace].disable_session_tags &&
-      !aws_eks_pod_identity_association.frontend[namespace].disable_session_tags
-    ])
-    error_message = "Pod Identity associations must bind the matching role and ServiceAccount and retain session tags."
-  }
-
-  assert {
-    condition = (
-      output.backend_sns_topic_arns[keys(var.application_namespaces)[0]].notifications == "arn:aws:sns:us-east-1:123456789012:${keys(var.application_namespaces)[0]}-notifications" &&
-      output.backend_sqs_queue_urls[keys(var.application_namespaces)[0]].audit == "https://sqs.us-east-1.amazonaws.com/123456789012/${keys(var.application_namespaces)[0]}-audit-sub" &&
-      output.appsync_event_http_endpoint[keys(var.application_namespaces)[0]].events == "https://${keys(var.application_namespaces)[0]}-events.example.test/event" &&
-      output.appsync_event_realtime_endpoint[keys(var.application_namespaces)[0]].other == "wss://${keys(var.application_namespaces)[0]}-other-realtime.example.test/event/realtime"
-    )
-    error_message = "Application configuration outputs must be keyed by namespace and base name."
-  }
+  expect_failures = [var.prod_cognito_user_pool_id]
 }
 
 run "reordered_lists" {
@@ -774,14 +569,9 @@ run "reordered_lists" {
   }
 
   variables {
-    application_namespaces = {
-      "stage" = {
-        s3_bucket_name          = "test-docs"
-        cognito_user_pool_id    = "us-east-1_testing"
-        backend_sns_topic_names = ["audit", "notifications"]
-        appsync_event_api_name  = ["other", "events"]
-      }
-    }
+    s3_bucket_name          = "test-docs"
+    backend_sns_topic_names = ["audit", "notifications"]
+    appsync_event_api_name  = ["other", "events"]
   }
   assert {
     condition = (
@@ -804,14 +594,9 @@ run "no_sns_topics" {
   }
 
   variables {
-    application_namespaces = {
-      "stage" = {
-        s3_bucket_name          = "test-docs"
-        cognito_user_pool_id    = "us-east-1_testing"
-        backend_sns_topic_names = []
-        appsync_event_api_name  = ["events", "other"]
-      }
-    }
+    s3_bucket_name          = "test-docs"
+    backend_sns_topic_names = []
+    appsync_event_api_name  = ["events", "other"]
   }
   assert {
     condition = (
@@ -837,16 +622,33 @@ run "queue_name_too_long" {
   }
 
   variables {
-    application_namespaces = {
-      "stage" = {
-        s3_bucket_name          = "test-docs"
-        cognito_user_pool_id    = "us-east-1_testing"
-        backend_sns_topic_names = ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
-        appsync_event_api_name  = ["events", "other"]
-      }
-    }
+    s3_bucket_name          = "test-docs"
+    backend_sns_topic_names = ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
+    appsync_event_api_name  = ["events", "other"]
   }
-  expect_failures = [aws_sqs_queue.backend]
+  expect_failures = [var.backend_sns_topic_names]
+}
+
+run "bucket_suffix_already_present" {
+  command = plan
+  providers = {
+    aws        = aws.offline
+    kubernetes = kubernetes
+    helm       = helm
+    time       = time
+  }
+
+  variables {
+    s3_bucket_name = "test-docs-123456789012-us-east-1"
+  }
+
+  assert {
+    condition = (
+      aws_s3_bucket.backend["stage"].bucket == "stage-test-docs-123456789012-us-east-1" &&
+      aws_s3_bucket.backend["prod"].bucket == "prod-test-docs-123456789012-us-east-1"
+    )
+    error_message = "An existing suffix for the current account and region must not be appended twice."
+  }
 }
 
 run "bucket_name_at_limit" {
@@ -859,14 +661,9 @@ run "bucket_name_at_limit" {
   }
 
   variables {
-    application_namespaces = {
-      "stage" = {
-        s3_bucket_name          = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-        cognito_user_pool_id    = "us-east-1_testing"
-        backend_sns_topic_names = ["notifications", "audit"]
-        appsync_event_api_name  = ["events", "other"]
-      }
-    }
+    s3_bucket_name          = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    backend_sns_topic_names = ["notifications", "audit"]
+    appsync_event_api_name  = ["events", "other"]
   }
 
   assert {
@@ -887,14 +684,9 @@ run "bucket_name_too_long" {
   }
 
   variables {
-    application_namespaces = {
-      "stage" = {
-        s3_bucket_name          = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-        cognito_user_pool_id    = "us-east-1_testing"
-        backend_sns_topic_names = ["notifications", "audit"]
-        appsync_event_api_name  = ["events", "other"]
-      }
-    }
+    s3_bucket_name          = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    backend_sns_topic_names = ["notifications", "audit"]
+    appsync_event_api_name  = ["events", "other"]
   }
 
   expect_failures = [aws_s3_bucket.backend]
@@ -910,80 +702,9 @@ run "api_name_too_long" {
   }
 
   variables {
-    application_namespaces = {
-      "stage" = {
-        s3_bucket_name          = "test-docs"
-        cognito_user_pool_id    = "us-east-1_testing"
-        backend_sns_topic_names = ["notifications", "audit"]
-        appsync_event_api_name  = ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
-      }
-    }
+    s3_bucket_name          = "test-docs"
+    backend_sns_topic_names = ["notifications", "audit"]
+    appsync_event_api_name  = ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
   }
-  expect_failures = [aws_appsync_api.frontend]
-}
-
-run "invalid_namespace_name" {
-  command = plan
-  providers = {
-    aws        = aws.offline
-    kubernetes = kubernetes
-    helm       = helm
-    time       = time
-  }
-
-  variables {
-    application_namespaces = {
-      "Stage" = {
-        s3_bucket_name          = "test-docs"
-        cognito_user_pool_id    = "us-east-1_testing"
-        backend_sns_topic_names = ["notifications", "audit"]
-        appsync_event_api_name  = ["events", "other"]
-      }
-    }
-  }
-  expect_failures = [var.application_namespaces]
-}
-
-run "reserved_namespace" {
-  command = plan
-  providers = {
-    aws        = aws.offline
-    kubernetes = kubernetes
-    helm       = helm
-    time       = time
-  }
-
-  variables {
-    application_namespaces = {
-      "default" = {
-        s3_bucket_name          = "test-docs"
-        cognito_user_pool_id    = "us-east-1_testing"
-        backend_sns_topic_names = ["notifications", "audit"]
-        appsync_event_api_name  = ["events", "other"]
-      }
-    }
-  }
-  expect_failures = [var.application_namespaces]
-}
-
-run "reserved_namespace_prefix" {
-  command = plan
-  providers = {
-    aws        = aws.offline
-    kubernetes = kubernetes
-    helm       = helm
-    time       = time
-  }
-
-  variables {
-    application_namespaces = {
-      "kube-app" = {
-        s3_bucket_name          = "test-docs"
-        cognito_user_pool_id    = "us-east-1_testing"
-        backend_sns_topic_names = ["notifications", "audit"]
-        appsync_event_api_name  = ["events", "other"]
-      }
-    }
-  }
-  expect_failures = [var.application_namespaces]
+  expect_failures = [var.appsync_event_api_name]
 }

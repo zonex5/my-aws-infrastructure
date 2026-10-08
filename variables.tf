@@ -135,69 +135,80 @@ variable "acm_certificate_arn" {
   }
 }
 
-variable "application_namespaces" {
-  description = "Application namespaces sharing this cluster, ALB, Istio and Argo CD. Each namespace has its own existing Cognito pool, S3 bucket, SNS/SQS resources and AppSync Event APIs."
-  type = map(object({
-    cognito_user_pool_id         = string
-    s3_bucket_name               = string
-    backend_sns_topic_names      = optional(list(string), [])
-    appsync_event_api_name       = list(string)
-    appsync_event_namespace_name = optional(string, "events")
-  }))
-  nullable = false
+variable "stage_cognito_user_pool_id" {
+  description = "Existing Cognito User Pool ID for stage. In HCP Terraform, enter as a Terraform string variable with HCL disabled."
+  type        = string
+  nullable    = false
 
   validation {
-    condition = length(var.application_namespaces) > 0 && alltrue([
-      for namespace in keys(var.application_namespaces) :
-      can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", namespace)) &&
-      !startswith(namespace, "kube-") &&
-      !contains(["default", "istio-system", "argocd", "amazon-cloudwatch", "external-secrets"], namespace)
-    ])
-    error_message = "Provide at least one application namespace: 1-63 lowercase letters, digits, or hyphens, starting and ending with a letter or digit. System namespaces are not allowed."
+    condition     = can(regex("^[a-z]{2}(-[a-z]+)+-[0-9]+_[A-Za-z0-9]+$", var.stage_cognito_user_pool_id))
+    error_message = "Provide an existing Cognito User Pool ID for stage, such as us-east-1_Stage123; do not use an ARN or App Client ID."
+  }
+}
+
+variable "prod_cognito_user_pool_id" {
+  description = "Existing Cognito User Pool ID for prod, different from stage. In HCP Terraform, enter as a Terraform string variable with HCL disabled."
+  type        = string
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[a-z]{2}(-[a-z]+)+-[0-9]+_[A-Za-z0-9]+$", var.prod_cognito_user_pool_id))
+    error_message = "Provide an existing Cognito User Pool ID for prod, such as us-east-1_Prod123; do not use an ARN or App Client ID."
   }
 
   validation {
-    condition = alltrue([
-      for config in values(var.application_namespaces) :
-      can(regex("^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$", config.s3_bucket_name))
-    ])
-    error_message = "Each s3_bucket_name must be a 3-40 character lowercase S3 prefix containing only letters, digits, or hyphens; start and end with a letter or digit."
+    condition     = var.prod_cognito_user_pool_id != var.stage_cognito_user_pool_id
+    error_message = "Stage and prod must use different existing Cognito User Pool IDs."
   }
+}
+
+variable "s3_bucket_name" {
+  description = "Shared S3 base name; creates <namespace>-<name>-<account-id>-<region>. The current account/region suffix is added only when absent. The complete name must fit within 63 characters. In HCP Terraform, enter with HCL disabled."
+  type        = string
+  nullable    = false
 
   validation {
-    condition = alltrue([
-      for config in values(var.application_namespaces) :
-      length(config.backend_sns_topic_names) == length(distinct(config.backend_sns_topic_names)) && alltrue([
-        for name in config.backend_sns_topic_names : can(regex("^[A-Za-z0-9_-]{1,74}$", name))
-      ])
-    ])
-    error_message = "Each backend_sns_topic_names list must contain unique base names of 1-74 letters, digits, hyphens, or underscores. The generated SQS queue name must fit within 80 characters."
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,55}[a-z0-9])?$", var.s3_bucket_name))
+    error_message = "Use an S3 base name of 1-57 lowercase letters, digits, or hyphens, starting and ending with a letter or digit. The stage- prefix and account/region suffix must fit within S3's 63-character limit."
   }
+}
+
+variable "backend_sns_topic_names" {
+  description = "Shared SNS topic base names for both stage and prod. Empty disables SNS/SQS in both environments. In HCP Terraform, enable HCL and enter a list such as [\"notifications\", \"audit\"]."
+  type        = list(string)
+  default     = []
+  nullable    = false
 
   validation {
-    condition = alltrue([
-      for config in values(var.application_namespaces) :
-      length(config.appsync_event_api_name) > 0 && length(config.appsync_event_api_name) == length(distinct(config.appsync_event_api_name)) && alltrue([
-        for name in config.appsync_event_api_name : can(regex("^[A-Za-z0-9_ -]{1,48}$", name)) && name == trimspace(name)
-      ])
+    condition = length(var.backend_sns_topic_names) == length(distinct(var.backend_sns_topic_names)) && alltrue([
+      for name in var.backend_sns_topic_names : can(regex("^[A-Za-z0-9_-]{1,70}$", name))
     ])
-    error_message = "Each appsync_event_api_name must be a non-empty list of unique 1-48 character base names: letters, digits, underscores, hyphens, or spaces, without leading or trailing spaces. The generated API name must fit within 50 characters."
+    error_message = "Provide unique SNS base names of 1-70 letters, digits, hyphens, or underscores; stage-<name>-sub must fit within SQS's 80-character limit."
   }
+}
+
+variable "appsync_event_api_name" {
+  description = "Shared AppSync Event API base names for both stage and prod. In HCP Terraform, enable HCL and enter a non-empty list such as [\"events\", \"other\"]."
+  type        = list(string)
+  nullable    = false
 
   validation {
-    condition = alltrue([
-      for config in values(var.application_namespaces) :
-      can(regex("^[A-Za-z0-9]([A-Za-z0-9-]{0,48}[A-Za-z0-9])?$", config.appsync_event_namespace_name))
+    condition = length(var.appsync_event_api_name) > 0 && length(var.appsync_event_api_name) == length(distinct(var.appsync_event_api_name)) && alltrue([
+      for name in var.appsync_event_api_name : can(regex("^[A-Za-z0-9_ -]{1,44}$", name)) && name == trimspace(name)
     ])
-    error_message = "Each appsync_event_namespace_name must use 1-50 letters, digits, or hyphens; start and end with a letter or digit."
+    error_message = "Provide a non-empty list of unique AppSync base names of 1-44 letters, digits, underscores, hyphens, or spaces, without leading or trailing spaces; stage-<name> must fit within 50 characters."
   }
+}
+
+variable "appsync_event_namespace_name" {
+  description = "Shared channel namespace inside every stage/prod AppSync API. In HCP Terraform, enter with HCL disabled."
+  type        = string
+  default     = "events"
+  nullable    = false
 
   validation {
-    condition = alltrue([
-      for config in values(var.application_namespaces) :
-      can(regex("^[a-z]{2}(-[a-z]+)+-[0-9]+_[A-Za-z0-9]+$", config.cognito_user_pool_id))
-    ]) && length(distinct([for config in values(var.application_namespaces) : config.cognito_user_pool_id])) == length(var.application_namespaces)
-    error_message = "Provide a distinct existing Cognito User Pool ID for each namespace, such as us-east-1_Example123; do not use an ARN or App Client ID."
+    condition     = can(regex("^[A-Za-z0-9]([A-Za-z0-9-]{0,48}[A-Za-z0-9])?$", var.appsync_event_namespace_name))
+    error_message = "Use an AppSync channel namespace of 1-50 letters, digits, or hyphens, starting and ending with a letter or digit."
   }
 }
 

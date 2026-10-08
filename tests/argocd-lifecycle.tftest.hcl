@@ -36,18 +36,15 @@ mock_provider "helm" {}
 mock_provider "time" {}
 
 variables {
-  domain_name              = ["app.example.com", "argocd.example.com", "api.example.com"]
-  argocd_domain_name       = "argocd.example.com"
-  acm_certificate_arn      = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
-  cloudwatch_addon_version = "v5.0.0-eksbuild.1"
-  application_namespaces = {
-    "stage" = {
-      s3_bucket_name          = "test-docs"
-      cognito_user_pool_id    = "us-east-1_testing"
-      backend_sns_topic_names = []
-      appsync_event_api_name  = ["events"]
-    }
-  }
+  domain_name                = ["app.example.com", "argocd.example.com", "api.example.com"]
+  argocd_domain_name         = "argocd.example.com"
+  acm_certificate_arn        = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+  cloudwatch_addon_version   = "v5.0.0-eksbuild.1"
+  s3_bucket_name             = "test-docs"
+  stage_cognito_user_pool_id = "us-east-1_testing"
+  prod_cognito_user_pool_id  = "us-east-1_Prod123"
+  backend_sns_topic_names    = []
+  appsync_event_api_name     = ["events"]
 }
 
 override_module {
@@ -82,6 +79,8 @@ run "apply_and_teardown" {
   assert {
     condition = (
       output.argocd_cluster_name == "in-cluster" &&
+      toset(keys(output.application_pod_identities)) == toset(["stage", "prod"]) &&
+      toset(keys(output.s3_bucket_name)) == toset(["stage", "prod"]) &&
       yamldecode(helm_release.argocd.values[0]).createClusterRoles &&
       helm_release.argocd.namespace == "argocd"
     )
@@ -89,22 +88,11 @@ run "apply_and_teardown" {
   }
 }
 
-run "add_prod_to_existing_cluster" {
+run "update_prod_cognito_in_existing_cluster" {
   command = apply
 
   variables {
-    application_namespaces = {
-      stage = {
-        cognito_user_pool_id   = "us-east-1_testing"
-        s3_bucket_name         = "test-docs"
-        appsync_event_api_name = ["events"]
-      }
-      prod = {
-        cognito_user_pool_id   = "us-east-1_Prod123"
-        s3_bucket_name         = "reports"
-        appsync_event_api_name = ["events"]
-      }
-    }
+    prod_cognito_user_pool_id = "us-east-1_Prod456"
   }
 
   assert {
@@ -114,6 +102,9 @@ run "add_prod_to_existing_cluster" {
       output.application_pod_identities.stage == run.apply_and_teardown.application_pod_identities.stage &&
       output.s3_bucket_name.stage == run.apply_and_teardown.s3_bucket_name.stage &&
       output.appsync_event_api_id.stage == run.apply_and_teardown.appsync_event_api_id.stage &&
+      output.application_pod_identities.prod == run.apply_and_teardown.application_pod_identities.prod &&
+      output.s3_bucket_name.prod == run.apply_and_teardown.s3_bucket_name.prod &&
+      output.appsync_event_api_id.prod == run.apply_and_teardown.appsync_event_api_id.prod &&
       yamldecode(helm_release.argocd.values[0]).createClusterRoles &&
       yamldecode(helm_release.argocd.values[0]).controller.clusterRoleRules.rules == [{
         apiGroups = ["*"]
@@ -121,6 +112,6 @@ run "add_prod_to_existing_cluster" {
         verbs     = ["*"]
       }]
     )
-    error_message = "Adding prod must retain the existing cluster registration and stage resource identities."
+    error_message = "Updating the prod pool must retain the existing shared cluster and both namespaces resource identities."
   }
 }

@@ -38,7 +38,7 @@ resource "aws_appsync_channel_namespace" "frontend" {
   for_each = local.frontend_event_apis
 
   api_id = aws_appsync_api.frontend[each.key].api_id
-  name   = var.application_namespaces[each.value.namespace].appsync_event_namespace_name
+  name   = local.application_namespaces[each.value.namespace].appsync_event_namespace_name
 }
 
 data "aws_iam_policy_document" "frontend" {

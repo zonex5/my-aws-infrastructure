@@ -1,14 +1,14 @@
 resource "aws_s3_bucket" "backend" {
   for_each = local.application_namespace_keys
 
-  bucket = "${each.key}-${var.application_namespaces[each.key].s3_bucket_name}-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  bucket = "${each.key}-${local.s3_bucket_base_name}"
 
   tags = local.common_tags
 
   lifecycle {
     precondition {
-      condition     = length("${each.key}-${var.application_namespaces[each.key].s3_bucket_name}-${data.aws_caller_identity.current.account_id}-${var.aws_region}") <= 63
-      error_message = "The generated <namespace>-<s3_bucket_name>-<account-id>-<region> bucket name must be at most 63 characters; shorten s3_bucket_name or the namespace."
+      condition     = length("${each.key}-${local.s3_bucket_base_name}") <= 63
+      error_message = "The generated <namespace>-<s3_bucket_name>-<account-id>-<region> bucket name must be at most 63 characters; shorten s3_bucket_name."
     }
   }
 }

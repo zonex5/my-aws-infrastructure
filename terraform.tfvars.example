@@ -3,7 +3,7 @@
 aws_region          = "us-east-1"
 cluster_name        = "my-cluster"
 kubernetes_version  = "1.36"
-domain_name         = ["app.example.com", "argocd.example.com", "api.example.com"]
+domain_name         = ["stage.example.com", "prod.example.com", "argocd.example.com"]
 vpc_cidr            = "10.0.0.0/16"
 public_subnet_cidrs  = ["10.0.0.0/24", "10.0.1.0/24"]
 private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
@@ -29,19 +29,17 @@ acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0
 # Public Argo CD URL hostname; include it in domain_name above.
 argocd_domain_name = "argocd.example.com"
 
-# Start with stage; add prod to this same map and use the same Terraform state.
-application_namespaces = {
-  stage = {
-    cognito_user_pool_id    = "us-east-1_Stage123"
-    s3_bucket_name          = "docs"
-    backend_sns_topic_names = ["notifications", "audit"]
-    appsync_event_api_name  = ["events"]
-  }
+# Both stage and prod are always created in the same cluster and Terraform state.
+# Enter these strings in HCP Terraform with HCL disabled (without quotes).
+stage_cognito_user_pool_id = "us-east-1_Stage123"
+prod_cognito_user_pool_id  = "us-east-1_Prod123"
+s3_bucket_name            = "qualitypro-docs"
 
-  # prod = {
-  #   cognito_user_pool_id    = "us-east-1_Prod123"
-  #   s3_bucket_name          = "docs"
-  #   backend_sns_topic_names = ["notifications", "audit"]
-  #   appsync_event_api_name  = ["events"]
-  # }
-}
+# Shared base names: stage-/prod- prefixes are added automatically.
+# S3 also adds <account-id>-<region> unless that exact suffix is already present.
+# In HCP Terraform, enable HCL for these list values.
+backend_sns_topic_names = ["notifications", "audit"]
+appsync_event_api_name  = ["events", "other"]
+
+# Optional shared AppSync channel namespace; defaults to events.
+# appsync_event_namespace_name = "events"

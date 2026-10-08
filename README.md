@@ -1,6 +1,6 @@
 # Proposed Infrastructure Project for CPA QualityPro
 
-This project deploys application infrastructure on Amazon EKS: networking, a Kubernetes cluster, HTTPS ingress, observability, and application access to AWS services. Each deployment manages one shared ALB, EKS cluster, Istio installation and Argo CD installation, plus all application namespaces configured in application_namespaces with separate backend/frontend permissions.
+This project deploys application infrastructure on Amazon EKS: networking, a Kubernetes cluster, HTTPS ingress, observability, and application access to AWS services. Each deployment manages one shared ALB, EKS cluster, Istio installation and Argo CD installation, plus both `stage` and `prod` application namespaces with separate backend/frontend permissions. Both environments are created together in a single Terraform run and state.
 
 ```text
 Internet → application domain → public ALB → Istio ingress gateway
@@ -12,8 +12,8 @@ Internet → application domain → public ALB → Istio ingress gateway
 - EKS with a Managed Node Group in private subnets, CoreDNS, kube-proxy, VPC CNI, and the EKS Pod Identity Agent.
 - Istio: base components, istiod, and an ingress gateway with a NodePort Service.
 - The AWS Load Balancer Controller and an Ingress that creates a public ALB with HTTPS and HTTP-to-HTTPS redirection.
-- Each configured application namespace with Istio injection, backend/frontend ServiceAccounts, and separate IAM roles through EKS Pod Identity.
-- One S3 bucket per application namespace and its configured AppSync Event APIs prefixed with that namespace; SNS topics, SQS queues, and subscriptions are created with the same prefix when topic names are configured.
+- Both `stage` and `prod` application namespaces with Istio injection, backend/frontend ServiceAccounts, and separate IAM roles through EKS Pod Identity.
+- One S3 bucket per application namespace, plus AppSync Event APIs, SNS topics, SQS queues, and subscriptions from shared base names, prefixed with `stage-` or `prod-`. An empty SNS topic list disables messaging in both environments.
 - CloudWatch Observability for metrics and logs, plus EKS control plane logging.
 - External Secrets Operator with CRDs in the dedicated `external-secrets` namespace, using EKS Pod Identity to read AWS Secrets Manager.
 - Self-hosted Argo CD installed by Helm, behind the shared ALB and Istio ingress gateway, with local cluster registration, and Kubernetes RBAC for application deployment.
@@ -30,7 +30,7 @@ The project does not issue certificates or create DNS records. After deployment,
 
 ### Cognito User Pool
 
-Prepare a separate existing User Pool in the infrastructure region for each namespace and supply its ID in `application_namespaces[namespace].cognito_user_pool_id`. This must be the pool ID, not its ARN or an App Client ID.
+Prepare two separate existing User Pools in the infrastructure region and supply their IDs in `stage_cognito_user_pool_id` and `prod_cognito_user_pool_id`. This must be the pool ID, not its ARN or an App Client ID.
 
 The project grants each namespace's backend IAM permissions to work with its own pool but does not create or modify the pool itself. User sign-in settings and application client integration remain outside the project's scope.
 
@@ -40,39 +40,75 @@ Set `argocd_domain_name` (for example `argocd.example.com`) for the public Argo 
 
 ## Parameters to Configure Before Deployment
 
-Populate `terraform.tfvars` with the prepared values and environment settings:
+Use Terraform 1.9 or newer. Both `stage` and `prod` are always created in the same shared EKS cluster. Use one Terraform state or HCP Terraform workspace for this deployment.
 
-- **Environment:** `aws_region`, `cluster_name`, `domain_name`, `argocd_domain_name`, `application_namespaces` (a map keyed by namespace).
-- **Networking and nodes:** `vpc_cidr`, `public_subnet_cidrs`, `private_subnet_cidrs`, `nat_gateway_per_az`, `cluster_endpoint_public_access_cidrs`, `node_instance_types`, `node_min_size`, `node_max_size`, `node_desired_size`. Allocate sufficient capacity for system components and applications; EKS API access must allow the network from which deployment runs.
-- **Existing resources:** the shared `acm_certificate_arn` and a separate `cognito_user_pool_id` inside each `application_namespaces` entry.
-- **Application resources to create:** inside each `application_namespaces` entry, the required `s3_bucket_name` is a base name for a new bucket, not the name of an existing bucket; the required `appsync_event_api_name` is a non-empty list of API base names. `backend_sns_topic_names` defines the topic list; an empty or omitted list disables SNS/SQS creation for that namespace. The optional `appsync_event_namespace_name` defaults to `events`.
+For local runs, copy `terraform.tfvars.example` to `terraform.tfvars` and fill in the values. For HCP Terraform, add the following keys in **Variables → Terraform variables**. Shared application settings are flat root variables; there is no nested `application_namespaces` input to duplicate per environment.
 
-There is no need to create S3 buckets, AppSync APIs, or SNS/SQS resources beforehand: the project creates them for each configured application namespace. The backend receives access to S3, Cognito, and configured SNS/SQS resources; the frontend receives AppSync access through its pod IAM role. Both roles are bound to their ServiceAccounts in that namespace. This access is intended for frontend server code, not JavaScript running in a browser.
+Strings in the table are entered without surrounding quotes with HCL disabled. Enable HCL for lists, booleans, numbers, and `null`, entering only the value, not `key = value`. See [HCP Terraform variable values](https://developer.hashicorp.com/terraform/cloud-docs/variables/managing-variables).
 
-For example:
+| Variable key | Example value in HCP Terraform | HCL | Required / default |
+| --- | --- | --- | --- |
+| `domain_name` | `["stage.example.com", "prod.example.com", "argocd.example.com"]` | Yes | Required |
+| `argocd_domain_name` | `argocd.example.com` | No | Required |
+| `acm_certificate_arn` | `arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000` | No | Required |
+| `stage_cognito_user_pool_id` | `us-east-1_Stage123` | No | Required |
+| `prod_cognito_user_pool_id` | `us-east-1_Prod123` | No | Required; different from stage |
+| `s3_bucket_name` | `qualitypro-docs` | No | Required; shared base name |
+| `appsync_event_api_name` | `["events", "other"]` | Yes | Required; non-empty shared list |
+| `backend_sns_topic_names` | `["notifications", "audit"]` | Yes | Optional; `[]` |
+| `appsync_event_namespace_name` | `events` | No | Optional; `events` |
+| `aws_region` | `us-east-1` | No | Optional; `us-east-1` |
+| `cluster_name` | `my-cluster` | No | Optional; `cluster-1` |
+| `kubernetes_version` | `1.36` | No | Optional; `1.36` |
+| `vpc_cidr` | `10.0.0.0/16` | No | Optional; `10.0.0.0/16` |
+| `public_subnet_cidrs` | `["10.0.0.0/24", "10.0.1.0/24"]` | Yes | Optional; shown value |
+| `private_subnet_cidrs` | `["10.0.10.0/24", "10.0.11.0/24"]` | Yes | Optional; shown value |
+| `nat_gateway_per_az` | `true` | Yes | Optional; `true` |
+| `cluster_endpoint_public_access_cidrs` | `["103.0.13.10/32"]` | Yes | Optional; `["0.0.0.0/0"]`; set trusted CIDRs |
+| `node_instance_types` | `["c7i-flex.large"]` | Yes | Optional; shown value |
+| `node_capacity_type` | `ON_DEMAND` | No | Optional; `ON_DEMAND` |
+| `node_min_size` | `2` | Yes | Optional; `1` |
+| `node_max_size` | `2` | Yes | Optional; `1` |
+| `node_desired_size` | `2` | Yes | Optional; `1` |
+| `cloudwatch_log_retention_days` | `30` | Yes | Optional; `30` |
+| `cloudwatch_addon_version` | `null` | Yes | Optional; `null` selects latest compatible build |
+| `external_secrets_secret_arns` | `["arn:aws:secretsmanager:us-east-1:123456789012:secret:stage/*", "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/*"]` | Yes | Optional; `[]` grants both namespace prefixes |
+| `external_secrets_kms_key_arns` | `["arn:aws:kms:us-east-1:123456789012:key/00000000-0000-0000-0000-000000000000"]` | Yes | Optional; `[]` |
+
+Allocate sufficient node capacity for system components and applications in both environments. EKS API access must allow the network from which Terraform runs. Configure AWS authentication for the runner separately.
+
+The shared application values are entered once:
 
 ```hcl
-application_namespaces = {
-  stage = {
-    cognito_user_pool_id    = "us-east-1_Stage123"
-    s3_bucket_name          = "docs"
-    backend_sns_topic_names = ["notifications", "audit"]
-    appsync_event_api_name  = ["events", "other"]
-  }
-}
+stage_cognito_user_pool_id = "us-east-1_Stage123"
+prod_cognito_user_pool_id  = "us-east-1_Prod123"
+s3_bucket_name            = "qualitypro-docs"
+backend_sns_topic_names   = ["notifications", "audit"]
+appsync_event_api_name    = ["events", "other"]
 ```
 
-This creates `stage-docs-<account-id>-<region>`, SNS topics `stage-notifications` and `stage-audit`, SQS queues `stage-notifications-sub` and `stage-audit-sub`, and AppSync APIs `stage-events` and `stage-other`. IAM role names keep the `<cluster_name>-stage-` prefix.
+This creates both sets of resources:
 
-Use the same Terraform state for all namespaces in this shared cluster. To add prod later, keep stage in application_namespaces and add a prod entry with its own existing Cognito pool and application resource settings. Keep cluster_name and shared infrastructure settings unchanged. Add its hostnames to domain_name and ensure the existing ACM certificate covers them; DNS and Istio routing remain configured separately.
+| Resource | stage | prod |
+| --- | --- | --- |
+| Kubernetes namespace | `stage` | `prod` |
+| S3 bucket | `stage-qualitypro-docs-123456789012-us-east-1` | `prod-qualitypro-docs-123456789012-us-east-1` |
+| SNS topics | `stage-notifications`, `stage-audit` | `prod-notifications`, `prod-audit` |
+| SQS queues | `stage-notifications-sub`, `stage-audit-sub` | `prod-notifications-sub`, `prod-audit-sub` |
+| AppSync APIs | `stage-events`, `stage-other` | `prod-events`, `prod-other` |
+| Existing Cognito pool | `us-east-1_Stage123` | `us-east-1_Prod123` |
 
-Create the Istio Gateway and VirtualServices separately after Terraform installs Istio and its ingress gateway. `domain_name` controls which hostnames the ALB forwards.
+S3 bucket names use `<namespace>-<s3_bucket_name>-<account-id>-<region>`. Terraform appends the current account/region suffix only if the shared value does not already end with that exact suffix. The complete bucket name must fit within 63 characters; with `stage-`, a 12-digit account ID, and `us-east-1`, the base name without the suffix can be at most 34 characters. SNS base names are limited to 70 characters (to allow the SQS `-sub` suffix), and AppSync base names to 44, accounting for the longer `stage-` prefix.
+
+The project creates S3, AppSync, and configured SNS/SQS resources. Each backend receives permissions only for its own S3 bucket, existing Cognito pool, and messaging resources. Each frontend receives permissions only for its own AppSync APIs through Pod Identity. Both roles are bound to ServiceAccounts in their respective namespace. This frontend access is intended for server code, not browser JavaScript. Outputs remain keyed by `stage`/`prod`, with API/topic base names as nested keys.
+
+Include both application hostnames in `domain_name` and the existing ACM certificate. Configure DNS and the Istio Gateway/VirtualServices separately after Terraform installs Istio and its ingress gateway. `domain_name` controls which hostnames the ALB forwards.
 
 Validate changes with `terraform fmt -check -recursive`, `terraform validate`, and `terraform test`. The tests check offline plans and a mocked apply/teardown cycle, without contacting AWS or Kubernetes. The lifecycle test verifies Terraform's dependency handling; it does not validate live AWS authorization or real cluster deletion.
 
 ## AWS Secrets Manager Integration
 
-Terraform installs the pinned External Secrets Helm chart, CRDs, and the `external-secrets` ServiceAccount in the `external-secrets` namespace with Istio injection disabled. Its IAM role is bound through EKS Pod Identity and restricted to that cluster, namespace, and ServiceAccount. The operator watches resources across namespaces, including all configured application namespaces.
+Terraform installs the pinned External Secrets Helm chart, CRDs, and the `external-secrets` ServiceAccount in the `external-secrets` namespace with Istio injection disabled. Its IAM role is bound through EKS Pod Identity and restricted to that cluster, namespace, and ServiceAccount. The operator watches resources across namespaces, including both `stage` and `prod`.
 
 By default, the shared operator role can read secrets named <namespace>/* for every configured application namespace in `aws_region` and the current AWS account, for example `stage/database`. Set `external_secrets_secret_arns` to override this scope with explicit secret ARNs or ARN patterns. The role has read permissions only; it cannot create, update, or delete AWS secrets. Name/tag discovery with `dataFrom.find` is not enabled because `secretsmanager:ListSecrets` is not granted; use explicit remote keys or `dataFrom.extract`.
 
@@ -86,7 +122,7 @@ The `external_secrets_namespace` and `external_secrets_pod_role_arn` outputs exp
 
 Terraform installs the pinned `argo-cd` Helm chart in `argocd`, with Istio injection disabled. `configs.params["server.insecure"] = true` disables TLS on the Argo CD UI/API server. The shared ALB terminates TLS using `acm_certificate_arn`, redirects external HTTP to HTTPS, and forwards all listed hostnames to the Istio ingress gateway over HTTP. Configure your own Istio Gateway/VirtualService to route the Argo CD hostname to `argocd-server.argocd.svc.cluster.local` on port `80`. Terraform does not create an Argo CD Ingress or its Istio routing resources. The public Argo CD URL remains HTTPS. Internal Kubernetes API TLS verification remains enabled. See [Argo CD TLS termination](https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/).
 
-The Helm chart creates ClusterRoles and ClusterRoleBindings for `argocd-application-controller` and `argocd-server` with `apiGroups`, `resources` and `verbs` set to `*`. Argo CD can deploy to any current or future namespace and manage cluster-scoped resources. Its Kubernetes permissions are independent of `application_namespaces`, which controls only the application namespaces and AWS resources Terraform provisions.
+The Helm chart creates ClusterRoles and ClusterRoleBindings for `argocd-application-controller` and `argocd-server` with `apiGroups`, `resources` and `verbs` set to `*`. Argo CD can deploy to any current or future namespace and manage cluster-scoped resources. Its Kubernetes permissions are independent of the `stage`/`prod` application namespaces and AWS resources Terraform provisions.
 
 The local cluster Secret registers `in-cluster` in the `default` project using `https://kubernetes.default.svc`. Argo CD authenticates with its pod ServiceAccount. Applications should use:
 
@@ -95,7 +131,7 @@ spec:
   project: default
   destination:
     name: in-cluster
-    namespace: stage # Any target namespace, including one outside application_namespaces.
+    namespace: stage # Any target namespace, including one outside stage/prod.
 ```
 
 Alternatively use `destination.server: https://kubernetes.default.svc` and omit `destination.name`. Configure Applications and repository credentials separately.
@@ -117,4 +153,4 @@ Retrieve `alb_dns_name` and configure the CNAME for the selected domain. Verify 
 
 To make the application accessible through the domain, deploy its Deployment/Service separately and configure an Istio Gateway/VirtualService. The project delivers traffic to the ingress gateway but does not configure routing to the application. Local cluster registration and deployment permissions are configured automatically; create the Argo CD Application and configure repository access separately.
 
-Terraform state is stored locally; keep a backup to continue managing the deployed infrastructure.
+Without a configured remote backend, Terraform state is stored locally; keep a backup to continue managing the deployed infrastructure. For a fresh deployment with HCP Terraform, use one workspace for both namespaces.

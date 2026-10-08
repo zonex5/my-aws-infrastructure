@@ -1,12 +1,28 @@
 locals {
-  application_namespace_keys = toset(keys(var.application_namespaces))
+  # Both environments share resource base names; only Cognito pools differ.
+  application_namespaces = {
+    for namespace, pool_id in {
+      stage = var.stage_cognito_user_pool_id
+      prod  = var.prod_cognito_user_pool_id
+      } : namespace => {
+      cognito_user_pool_id         = pool_id
+      s3_bucket_name               = var.s3_bucket_name
+      backend_sns_topic_names      = var.backend_sns_topic_names
+      appsync_event_api_name       = var.appsync_event_api_name
+      appsync_event_namespace_name = var.appsync_event_namespace_name
+    }
+  }
+  application_namespace_keys = toset(keys(local.application_namespaces))
+
+  s3_bucket_suffix    = "${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  s3_bucket_base_name = endswith(var.s3_bucket_name, "-${local.s3_bucket_suffix}") ? var.s3_bucket_name : "${var.s3_bucket_name}-${local.s3_bucket_suffix}"
 
   backend_service_account_name  = "backend-service-account"
   frontend_service_account_name = "frontend-service-account"
 
   backend_topics = {
     for topic in flatten([
-      for namespace, config in var.application_namespaces : [
+      for namespace, config in local.application_namespaces : [
         for name in config.backend_sns_topic_names : {
           key       = "${namespace}/${name}"
           namespace = namespace
@@ -18,7 +34,7 @@ locals {
 
   frontend_event_apis = {
     for api in flatten([
-      for namespace, config in var.application_namespaces : [
+      for namespace, config in local.application_namespaces : [
         for name in config.appsync_event_api_name : {
           key       = "${namespace}/${name}"
           namespace = namespace
