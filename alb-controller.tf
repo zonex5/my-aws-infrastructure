@@ -51,5 +51,10 @@ resource "helm_release" "aws_load_balancer_controller" {
     }
   })]
 
-  depends_on = [aws_eks_pod_identity_association.aws_load_balancer_controller]
+  # Keep NAT gateways and routing available while uninstalling dependent charts
+  # and finalizing controller-managed AWS resources during destroy.
+  depends_on = [
+    aws_eks_pod_identity_association.aws_load_balancer_controller,
+    module.vpc,
+  ]
 }
