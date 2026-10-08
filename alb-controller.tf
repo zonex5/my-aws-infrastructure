@@ -31,6 +31,17 @@ resource "aws_eks_pod_identity_association" "aws_load_balancer_controller" {
   depends_on = [aws_iam_role_policy_attachment.aws_load_balancer_controller]
 }
 
+resource "time_sleep" "aws_load_balancer_controller_identity" {
+  # EKS may acknowledge the association before its admission webhook sees it.
+  # Pods created in that interval never receive Pod Identity credentials.
+  create_duration = "30s"
+
+  triggers = {
+    association_id = aws_eks_pod_identity_association.aws_load_balancer_controller.association_id
+    role_arn       = aws_iam_role.aws_load_balancer_controller.arn
+  }
+}
+
 resource "helm_release" "aws_load_balancer_controller" {
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
@@ -45,6 +56,11 @@ resource "helm_release" "aws_load_balancer_controller" {
     region                     = var.aws_region
     vpcId                      = module.vpc.vpc_id
     enableBackendSecurityGroup = false
+    # Roll existing pods as well, including pods from a failed initial apply.
+    podAnnotations = {
+      "qualitypro.io/pod-identity-association" = aws_eks_pod_identity_association.aws_load_balancer_controller.association_id
+      "qualitypro.io/pod-identity-role"        = aws_iam_role.aws_load_balancer_controller.arn
+    }
     serviceAccount = {
       create = false
       name   = kubernetes_service_account_v1.aws_load_balancer_controller.metadata[0].name
@@ -54,7 +70,7 @@ resource "helm_release" "aws_load_balancer_controller" {
   # Keep NAT gateways and routing available while uninstalling dependent charts
   # and finalizing controller-managed AWS resources during destroy.
   depends_on = [
-    aws_eks_pod_identity_association.aws_load_balancer_controller,
+    time_sleep.aws_load_balancer_controller_identity,
     module.vpc,
   ]
 }

@@ -108,6 +108,19 @@ Include both application hostnames in `domain_name` and the existing ACM certifi
 
 Validate changes with `terraform fmt -check -recursive`, `terraform validate`, and `terraform test`. The tests check offline plans and a mocked apply/teardown cycle, without contacting AWS or Kubernetes. The lifecycle test verifies Terraform's dependency handling; it does not validate live AWS authorization or real cluster deletion.
 
+### Initial ALB Creation Troubleshooting
+
+`Load Balancer is not ready yet` on `kubernetes_ingress_v1.app` means the Ingress did not receive an ALB address within the provider timeout. Inspect the controller logs for the underlying error:
+
+```powershell
+kubectl -n kube-system logs deployment/aws-load-balancer-controller --all-pods=true --tail=100
+kubectl -n istio-system describe ingress app
+```
+
+If the controller reports `failed to refresh cached credentials, no EC2 IMDS role found`, check whether its Pods have `AWS_CONTAINER_CREDENTIALS_FULL_URI`, `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`, and the `eks-pod-identity-token` volume. EKS injects these when each Pod is created. [Pod Identity associations are eventually consistent](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html), so Pods started immediately after association creation can miss this injection and require recreation.
+
+Terraform waits 30 seconds after creating or replacing the controller's Pod Identity association before installing its Helm release. Pod annotations track the association and role, causing a rolling update when they change and when this fix is first applied to an existing installation. This delay mitigates propagation latency; it is not an AWS readiness guarantee. Re-run plan/apply in the same HCP Terraform workspace with its existing state. If Kubernetes access is unavailable, CloudWatch Observability collects controller logs in `/aws/containerinsights/<cluster_name>/application`.
+
 ## AWS Secrets Manager Integration
 
 Terraform installs the pinned External Secrets Helm chart, CRDs, and the `external-secrets` ServiceAccount in the `external-secrets` namespace with Istio injection disabled. Its IAM role is bound through EKS Pod Identity and restricted to that cluster, namespace, and ServiceAccount. The operator watches resources across namespaces, including both `stage` and `prod`.
