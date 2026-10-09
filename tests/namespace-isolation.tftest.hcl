@@ -68,6 +68,18 @@ override_data {
 }
 
 override_resource {
+  target          = aws_iam_role.external_secrets
+  override_during = plan
+  values          = { arn = "arn:aws:iam::123456789012:role/cluster-1-external-secrets" }
+}
+
+override_resource {
+  target          = aws_eks_pod_identity_association.external_secrets
+  override_during = plan
+  values          = { association_id = "a-testexternalsecrets" }
+}
+
+override_resource {
   target          = aws_s3_bucket.backend["stage"]
   override_during = plan
   values = {

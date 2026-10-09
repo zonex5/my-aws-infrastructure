@@ -16,7 +16,7 @@ module "eks" {
   enable_cluster_creator_admin_permissions = true
 
   vpc_id     = module.vpc.vpc_id
-  subnet_ids = module.vpc.private_subnets
+  subnet_ids = terraform_data.private_subnets_ready.output
 
   node_security_group_additional_rules = {
     ingress_node_istio_gateway_http = {
@@ -47,7 +47,7 @@ module "eks" {
 
   eks_managed_node_groups = {
     workers = {
-      subnet_ids     = module.vpc.private_subnets
+      subnet_ids     = terraform_data.private_subnets_ready.output
       ami_type       = "AL2023_x86_64_STANDARD"
       instance_types = [var.node_instance_type]
       capacity_type  = var.node_capacity_type

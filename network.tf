@@ -36,6 +36,13 @@ module "vpc" {
   }
 }
 
+resource "terraform_data" "private_subnets_ready" {
+  # Gate EKS subnet inputs on NAT/routing readiness without deferring the EKS
+  # module's partition/account data sources and making its counts unknown.
+  input      = module.vpc.private_subnets
+  depends_on = [module.vpc]
+}
+
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = module.vpc.vpc_id
   service_name      = "com.amazonaws.${var.aws_region}.s3"

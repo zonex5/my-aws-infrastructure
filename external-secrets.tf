@@ -109,6 +109,16 @@ resource "aws_eks_pod_identity_association" "external_secrets" {
   depends_on = [module.eks, aws_iam_role_policy_attachment.external_secrets]
 }
 
+resource "time_sleep" "external_secrets_identity" {
+  # Association creation can finish before EKS injects credentials into new Pods.
+  create_duration = "30s"
+
+  triggers = {
+    association_id = aws_eks_pod_identity_association.external_secrets.association_id
+    role_arn       = aws_iam_role.external_secrets.arn
+  }
+}
+
 resource "helm_release" "external_secrets" {
   name       = "external-secrets"
   repository = "https://charts.external-secrets.io"
@@ -120,6 +130,10 @@ resource "helm_release" "external_secrets" {
 
   values = [yamlencode({
     installCRDs = true
+    podAnnotations = {
+      "qualitypro.io/pod-identity-association" = aws_eks_pod_identity_association.external_secrets.association_id
+      "qualitypro.io/pod-identity-role"        = aws_iam_role.external_secrets.arn
+    }
     serviceAccount = {
       create = false
       name   = kubernetes_service_account_v1.external_secrets.metadata[0].name
@@ -128,7 +142,7 @@ resource "helm_release" "external_secrets" {
 
   # Service creation invokes the ALB webhook; wait until the controller is ready.
   depends_on = [
-    aws_eks_pod_identity_association.external_secrets,
+    time_sleep.external_secrets_identity,
     helm_release.aws_load_balancer_controller,
   ]
 }
