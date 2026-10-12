@@ -118,16 +118,6 @@ output "appsync_event_namespace_name" {
   value       = { for namespace, config in local.application_namespaces : namespace => config.appsync_event_namespace_name }
 }
 
-output "s3_bucket_name" {
-  description = "Backend S3 bucket names keyed by Kubernetes namespace."
-  value       = { for namespace, bucket in aws_s3_bucket.backend : namespace => bucket.id }
-}
-
-output "s3_bucket_arn" {
-  description = "Backend S3 bucket ARNs keyed by Kubernetes namespace."
-  value       = { for namespace, bucket in aws_s3_bucket.backend : namespace => bucket.arn }
-}
-
 output "cloudwatch_observability_addon_version" {
   description = "Installed Amazon CloudWatch Observability EKS add-on version."
   value       = aws_eks_addon.cloudwatch_observability.addon_version

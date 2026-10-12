@@ -1,6 +1,6 @@
 # Proposed Infrastructure Project for CPA QualityPro
 
-This project deploys application infrastructure on Amazon EKS: networking, a Kubernetes cluster, HTTPS ingress, observability, and application access to AWS services. Each deployment manages one shared ALB, EKS cluster, Istio installation and Argo CD installation, plus both `stage` and `prod` application namespaces with separate backend/frontend permissions. Both environments are created together in a single Terraform run and state.
+This project deploys application infrastructure on Amazon EKS: networking, a Kubernetes cluster, HTTPS ingress, observability, and application access to AWS services. Each deployment manages one shared ALB, EKS cluster, Istio installation and Argo CD installation, plus both `stage` and `prod` application namespaces with separate backend/frontend permissions. Two independent HCP Terraform workspaces separate the cluster lifecycle from S3 storage. Both environments are managed together within each workspace.
 
 ```text
 Internet → application domain → public ALB → Istio ingress gateway
@@ -17,6 +17,25 @@ Internet → application domain → public ALB → Istio ingress gateway
 - CloudWatch Observability for metrics and logs, plus EKS control plane logging.
 - External Secrets Operator with CRDs in the dedicated `external-secrets` namespace, using EKS Pod Identity to read AWS Secrets Manager.
 - Self-hosted Argo CD installed by Helm, behind the shared ALB and Istio ingress gateway, with local cluster registration, and Kubernetes RBAC for application deployment.
+
+## Project Structure and HCP Terraform Setup
+
+This structure is intended for a fresh installation. Create two VCS-backed workspaces connected to this repository, each with its own state and variables:
+
+| Workspace name | Terraform Working Directory | Resources |
+| --- | --- | --- |
+| `1-storage` | `1-storage` | Stage/prod S3 buckets, public access blocks, AES256 encryption, versioning, SSM storage metadata |
+| `2-infrastructure` | `2-infrastructure` | VPC, NAT, S3 VPC Endpoint, EKS, Kubernetes/Helm components, IAM/Pod Identity, AppSync, SNS/SQS |
+
+Each directory is a standalone root module with its own `versions.tf`, providers, variables, outputs, tests, example variables and `.terraform.lock.hcl`. The repository root contains documentation rather than an executable Terraform module. Storage requires only the AWS provider; it does not depend on EKS, Cognito, Kubernetes or Helm. The S3 VPC Endpoint belongs to infrastructure because it depends on the VPC and route tables. AppSync and SNS/SQS also belong to infrastructure and are deleted with that workspace's resources.
+
+1. Set each workspace's **Settings → General → Terraform Working Directory** to the directory in the table and choose the same supported Terraform CLI version (1.9 or newer, below 2.0). HCP Terraform manages state automatically for VCS-backed remote runs; no organization name or credentials are committed in a backend block. Keep both lock files in Git. See [workspace settings](https://developer.hashicorp.com/terraform/cloud-docs/workspaces/settings).
+2. Configure AWS authentication separately in both workspaces, using the same account and region. The infrastructure runner needs AWS CLI available for `aws eks get-token` and network access to the EKS API. Configure the existing AWS/OIDC trust for both workspace identities if using dynamic credentials. Storage needs permissions for S3 management and creating, reading, updating, tagging and deleting its SSM parameter; infrastructure needs permissions for its network, EKS, IAM and application services plus `ssm:GetParameter` on `/qualitypro/<project_name>/storage`. These are permissions on the existing AWS runner identities; application Pod Identity roles do not read this parameter.
+3. Add the storage Terraform variables from the table below. Apply `1-storage` first. Terraform creates the buckets and their security settings, then automatically publishes non-secret bucket metadata as a Standard String parameter at **`/qualitypro/<project_name>/storage`** in AWS SSM Parameter Store.
+4. Add the infrastructure Terraform variables using the same **`project_name`** and **`aws_region`** as storage. The project identifier is stable and can differ from `cluster_name`; infrastructure discovers storage through the project path without knowing any HCP workspace names. The existing AWS provider reads the parameter and verifies its metadata version, AWS account, region and stage/prod ARN keys. No additional API tokens, HCP state access or manual workspace-sharing settings are needed.
+5. Plan and apply `2-infrastructure` after storage's successful apply. The first-deployment order is **`1-storage` → `2-infrastructure`**. Publication and discovery are managed entirely in Terraform. See [SSM parameter resource](https://registry.terraform.io/providers/hashicorp/aws/6.52.0/docs/resources/ssm_parameter) and [SSM parameter data source](https://registry.terraform.io/providers/hashicorp/aws/6.52.0/docs/data-sources/ssm_parameter).
+
+The SSM metadata contains `schema_version = 1`, `s3_bucket_name` and `s3_bucket_arn` maps keyed by `stage`/`prod`, plus `aws_account_id` and `aws_region`. The same bucket/account/region values remain available as outputs in the storage workspace, together with `storage_metadata_parameter_name`. Infrastructure consumes the published bucket ARNs for backend IAM policies without reading another Terraform state, reconstructing bucket names or managing the buckets. Cluster, application identity, messaging, AppSync and ingress outputs are available in infrastructure. Recreating infrastructure with the same account, region and project identifier reuses the existing buckets.
 
 ## Existing Resources to Prepare
 
@@ -40,23 +59,33 @@ Set `argocd_domain_name` (for example `argocd.example.com`) for the public Argo 
 
 ## Parameters to Configure Before Deployment
 
-Use Terraform 1.9 or newer. Both `stage` and `prod` are always created in the same shared EKS cluster. Use one Terraform state or HCP Terraform workspace for this deployment.
+Use Terraform 1.9 or newer. Both `stage` and `prod` are always created in the same shared EKS cluster, while their S3 buckets are managed together in the separate storage workspace.
 
-For local runs, copy `terraform.tfvars.example` to `terraform.tfvars` and fill in the values. For HCP Terraform, add the following keys in **Variables → Terraform variables**. Shared application settings are flat root variables; there is no nested `application_namespaces` input to duplicate per environment.
+Each root module has a `terraform.tfvars.example`; use the matching file as a reference for its workspace variables. If using local configuration files, copy the example to `terraform.tfvars` inside the corresponding directory and keep real values out of Git. Deployment uses the HCP VCS-backed workflow above. Local validation and mocked tests are documented below. For HCP Terraform, add the following keys in **Variables → Terraform variables**. Shared application settings are flat root variables; there is no nested `application_namespaces` input to duplicate per environment.
 
 Strings in the table are entered without surrounding quotes with HCL disabled. Enable HCL for lists, booleans, numbers, and `null`, entering only the value, not `key = value`. See [HCP Terraform variable values](https://developer.hashicorp.com/terraform/cloud-docs/variables/managing-variables).
 
 Every variable without a `default` is required and uses `nullable = false`: supply each required value before planning. Variables with defaults remain optional. `node_instance_type` accepts one string, for example `c7i-flex.large` with HCL disabled; Terraform wraps it in a single-element list for the EKS module.
 
+### Storage variables (`1-storage`)
+
 | Variable key | Example value in HCP Terraform | HCL | Required / default |
 | --- | --- | --- | --- |
+| `aws_region` | `us-east-1` | No | Required; same as infrastructure |
+| `project_name` | `my-cluster` | No | Required; stable identifier shared with infrastructure, 1-64 letters/digits/underscores/hyphens |
+| `s3_bucket_name` | `qualitypro-docs` | No | Required; shared base name |
+| `s3_force_destroy` | `false` | Yes | Optional; `false`; allow deleting bucket contents during storage destroy |
+
+### Infrastructure variables (`2-infrastructure`)
+
+| Variable key | Example value in HCP Terraform | HCL | Required / default |
+| --- | --- | --- | --- |
+| `project_name` | `my-cluster` | No | Required; same stable project identifier as storage |
 | `domain_name` | `["stage.example.com", "prod.example.com", "argocd.example.com"]` | Yes | Required |
 | `argocd_domain_name` | `argocd.example.com` | No | Required |
 | `acm_certificate_arn` | `arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000` | No | Required |
 | `stage_cognito_user_pool_id` | `us-east-1_Stage123` | No | Required |
 | `prod_cognito_user_pool_id` | `us-east-1_Prod123` | No | Required; configured separately |
-| `s3_bucket_name` | `qualitypro-docs` | No | Required; shared base name |
-| `s3_force_destroy` | `false` | Yes | Optional; `false`; allow deleting bucket contents during destroy |
 | `appsync_event_api_name` | `["events", "other"]` | Yes | Required; non-empty shared list |
 | `backend_sns_topic_names` | `["notifications", "audit"]` | Yes | Optional; `[]` |
 | `appsync_event_namespace_name` | `events` | No | Optional; `events` |
@@ -80,17 +109,16 @@ Every variable without a `default` is required and uses `nullable = false`: supp
 
 Allocate sufficient node capacity for system components and applications in both environments. EKS API access must allow the network from which Terraform runs. Configure AWS authentication for the runner separately.
 
-The shared application values are entered once:
+The shared application values are entered once in infrastructure:
 
 ```hcl
 stage_cognito_user_pool_id = "us-east-1_Stage123"
 prod_cognito_user_pool_id  = "us-east-1_Prod123"
-s3_bucket_name            = "qualitypro-docs"
 backend_sns_topic_names   = ["notifications", "audit"]
 appsync_event_api_name    = ["events", "other"]
 ```
 
-This creates both sets of resources:
+Set `s3_bucket_name = "qualitypro-docs"` once in storage. Together the two workspaces create both sets of resources:
 
 | Resource | stage | prod |
 | --- | --- | --- |
@@ -107,7 +135,22 @@ The project creates S3, AppSync, and configured SNS/SQS resources. Each backend 
 
 Include both application hostnames in `domain_name` and the existing ACM certificate. Configure DNS and the Istio Gateway/VirtualServices separately after Terraform installs Istio and its ingress gateway. `domain_name` controls which hostnames the ALB forwards.
 
-Validate changes with `terraform fmt -check -recursive`, `terraform validate`, and `terraform test`. The tests check offline plans and a mocked apply/teardown cycle, without contacting AWS or Kubernetes. The lifecycle test verifies Terraform's dependency handling; it does not validate live AWS authorization or real cluster deletion.
+Validate both root modules from the repository root in PowerShell:
+
+```powershell
+foreach ($rootModule in @("1-storage", "2-infrastructure")) {
+  terraform "-chdir=$rootModule" init -backend=false -input=false
+  if ($LASTEXITCODE -ne 0) { throw "Initialization failed: $rootModule" }
+  terraform "-chdir=$rootModule" fmt -check -recursive
+  if ($LASTEXITCODE -ne 0) { throw "Formatting failed: $rootModule" }
+  terraform "-chdir=$rootModule" validate
+  if ($LASTEXITCODE -ne 0) { throw "Validation failed: $rootModule" }
+  terraform "-chdir=$rootModule" test
+  if ($LASTEXITCODE -ne 0) { throw "Tests failed: $rootModule" }
+}
+```
+
+Initialization downloads modules/providers and requires network access. The tests check offline plans and mocked apply/teardown cycles without contacting AWS, Kubernetes or HCP Terraform. Infrastructure tests substitute the SSM metadata and verify namespace-specific IAM grants, project-based discovery, and rejection of account/region/version mismatches. Storage tests verify bucket naming, privacy, encryption, versioning, automatic SSM publication, outputs and the storage-only teardown option. Lifecycle tests verify Terraform's dependency handling; they do not validate live authorization or real resource deletion.
 
 ### Initial ALB Creation Troubleshooting
 
@@ -122,20 +165,15 @@ If the controller reports `failed to refresh cached credentials, no EC2 IMDS rol
 
 Terraform finishes VPC creation, including NAT gateways and routes, before creating EKS. It waits 30 seconds after creating or replacing each Pod Identity association for the ALB controller and External Secrets before installing the corresponding Helm release. Pod annotations track the association and role, causing a rolling update when they change and when this fix is first applied to an existing installation. This delay mitigates propagation latency; it is not an AWS readiness guarantee. If Kubernetes access is unavailable, CloudWatch Observability collects controller logs in `/aws/containerinsights/<cluster_name>/application`.
 
-The Kubernetes provider is pinned to `3.2.1`, which [fixes `Unexpected Identity Change` after slow or failed resource creation](https://github.com/hashicorp/terraform-provider-kubernetes/blob/v3.2.1/CHANGELOG.md). Commit `.terraform.lock.hcl` together with `versions.tf` so HCP Terraform installs the matching version.
+The Kubernetes provider is pinned to `3.2.1`, which [fixes `Unexpected Identity Change` after slow or failed resource creation](https://github.com/hashicorp/terraform-provider-kubernetes/blob/v3.2.1/CHANGELOG.md). Commit `2-infrastructure/.terraform.lock.hcl` together with its `versions.tf` so HCP Terraform installs the matching version.
 
-### Destroy and Deploy Again in HCP Terraform
+### Independent Destruction and Redeployment in HCP Terraform
 
-Use the existing workspace and its state to destroy the old deployment before creating a fresh one. Deleting a workspace or its state does not delete AWS resources and prevents Terraform from tracking them. The following procedure removes resources managed by this project; existing ACM certificates, Cognito pools, DNS records, AWS secrets, and the runner's IAM/OIDC setup are managed separately.
+To recreate only the cluster and its application infrastructure, queue a destroy plan in **2-infrastructure**, review it and apply it. Its state contains no S3 buckets, their configuration resources or the published SSM parameter, so storage remains managed by **1-storage**. Keep storage and its metadata parameter available while planning/applying infrastructure. Then queue a normal infrastructure Plan → Apply using the same project identifier; update DNS with the new `alb_dns_name` and restore externally configured Istio routing and Argo CD Applications. AppSync and SNS/SQS are recreated along with infrastructure.
 
-1. Upload the updated configuration and lock file to the existing workspace. In the run's initialization output, verify `hashicorp/kubernetes v3.2.1` is installed. The `Terraform 1.x` line in the plan log identifies the CLI version, not the Kubernetes provider version; edits that exist only locally do not change an HCP run's configuration.
-2. If the current ALB controller Pods lack Pod Identity credentials, first run a targeted plan/apply to update the controller, so it can finalize Ingress/ALB deletion. Temporarily set the workspace **environment variable** `TF_CLI_ARGS_plan` to `-refresh=false -target=helm_release.aws_load_balancer_controller`, queue a normal run using the updated configuration, review and apply it, then remove this environment variable. Skipping refresh avoids the existing Ingress's broken identity during this recovery plan. This is a teardown repair step, not part of a fresh installation.
-3. If the S3 buckets contain data and all of it should be deleted, set the **Terraform variable** `s3_force_destroy` to `true` with HCL enabled. Apply this change before destroy. For this preparation step only, use `TF_CLI_ARGS_plan=-target=aws_s3_bucket.backend`, then remove the environment variable. The option deletes objects and their versions during destroy; the runner also needs permissions to list and delete them, and Object Lock restrictions can still prevent deletion. Empty buckets do not require this step.
-4. In **Settings → Destruction and Deletion**, enable **Allow destroy plans**, then **Queue destroy plan**. If planning still fails while refreshing `kubernetes_ingress_v1.app` with `Unexpected Identity Change`, temporarily set the **environment variable** `TF_CLI_ARGS_plan` to just `-refresh=false` and queue a new destroy plan. Do not leave any `-target` flags on the full destroy run. Skipping refresh plans from the stored state, so review the complete resource list before applying. Review the plan for both `stage` and `prod` and apply it. Wait for successful completion, then remove `TF_CLI_ARGS_plan` before starting a new deployment. The dependencies keep the ALB controller, Pod Identity, nodes, and VPC egress available while Ingress resources are finalized.
-5. Set `s3_force_destroy` back to `false`, ensure `TF_CLI_ARGS_plan` is absent, then queue a normal Plan → Apply in the same workspace. With the managed resources destroyed, this creates a fresh cluster and both application namespaces. No import or state removal is needed.
-6. Update DNS with the new `alb_dns_name` and restore the Istio routing and Argo CD Applications that are configured outside Terraform.
+For a complete teardown, destroy **2-infrastructure first**, then explicitly destroy **1-storage**. Only the storage workspace controls `s3_force_destroy`. Keep it `false` for normal use. If all bucket contents and object versions should be deleted, set it to `true` with HCL enabled in **1-storage** and apply that change before queuing its destroy. The AWS runner needs object/version deletion permissions, and Object Lock restrictions can still prevent deletion. Reset the value to `false` before a later fresh storage deployment.
 
-AWS schedules KMS key deletion rather than deleting keys immediately. Container Insights log groups created by the observability agent are also outside Terraform state and may remain after destroy. See [HCP Terraform destruction and deletion](https://developer.hashicorp.com/terraform/cloud-docs/workspaces/settings/deletion) and [targeting a recovery plan](https://developer.hashicorp.com/terraform/cli/commands/plan#resource-targeting).
+Use **Settings → Destruction and Deletion → Allow destroy plans → Queue destroy plan** in the intended workspace. Keep the ALB controller, Pod Identity and network functional until Ingress deletion is finalized. Deleting a workspace/state does not delete AWS resources. Existing ACM certificates, Cognito pools, DNS records, AWS secrets and runner IAM/OIDC setup are managed separately. AWS schedules KMS key deletion; Container Insights log groups created outside Terraform state may remain. See [HCP Terraform destruction and deletion](https://developer.hashicorp.com/terraform/cloud-docs/workspaces/settings/deletion).
 
 ## AWS Secrets Manager Integration
 
@@ -169,7 +207,7 @@ Alternatively use `destination.server: https://kubernetes.default.svc` and omit 
 
 For a target namespace that does not exist yet, add `CreateNamespace=true` to the Application's `spec.syncPolicy.syncOptions`, or create the namespace beforehand. Application resources themselves remain in the `argocd` namespace.
 
-Run `terraform init`, `terraform plan`, review the plan, then `terraform apply`. Configure the CNAME using `alb_dns_name`, configure the Istio Gateway/VirtualService, then open `argocd_server_url`. Retrieve the generated initial administrator password in PowerShell:
+After applying storage and then infrastructure through HCP Terraform, configure the CNAME using infrastructure's `alb_dns_name`, configure the Istio Gateway/VirtualService, then open `argocd_server_url`. Retrieve the generated initial administrator password in PowerShell:
 
 ```powershell
 $initialPassword = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}'
@@ -184,4 +222,4 @@ Retrieve `alb_dns_name` and configure the CNAME for the selected domain. Verify 
 
 To make the application accessible through the domain, deploy its Deployment/Service separately and configure an Istio Gateway/VirtualService. The project delivers traffic to the ingress gateway but does not configure routing to the application. Local cluster registration and deployment permissions are configured automatically; create the Argo CD Application and configure repository access separately.
 
-Without a configured remote backend, Terraform state is stored locally; keep a backup to continue managing the deployed infrastructure. For a fresh deployment with HCP Terraform, use one workspace for both namespaces.
+The two HCP Terraform workspaces each retain their own state. Run deployment and destruction in the intended workspace; the repository root is not a deployment directory. Local root-level state, variable files and previous `.terraform` caches are not inputs to these new HCP workspaces.

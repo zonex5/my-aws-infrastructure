@@ -35,7 +35,24 @@ mock_provider "kubernetes" {}
 mock_provider "helm" {}
 mock_provider "time" {}
 
+override_data {
+  target = data.aws_ssm_parameter.storage
+  values = {
+    type = "String"
+    insecure_value = jsonencode({
+      schema_version = 1
+      aws_account_id = "123456789012"
+      aws_region     = "us-east-1"
+      s3_bucket_arn = {
+        stage = "arn:aws:s3:::stage-test-docs-123456789012-us-east-1"
+        prod  = "arn:aws:s3:::prod-test-docs-123456789012-us-east-1"
+      }
+    })
+  }
+}
+
 variables {
+  project_name               = "cluster-1"
   aws_region                 = "us-east-1"
   cluster_name               = "cluster-1"
   kubernetes_version         = "1.36"
@@ -46,7 +63,6 @@ variables {
   argocd_domain_name         = "argocd.example.com"
   acm_certificate_arn        = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
   cloudwatch_addon_version   = "v5.0.0-eksbuild.1"
-  s3_bucket_name             = "test-docs"
   stage_cognito_user_pool_id = "us-east-1_testing"
   prod_cognito_user_pool_id  = "us-east-1_Prod123"
   backend_sns_topic_names    = []
@@ -86,10 +102,8 @@ run "apply_and_teardown" {
     condition = (
       output.argocd_cluster_name == "in-cluster" &&
       toset(keys(output.application_pod_identities)) == toset(["stage", "prod"]) &&
-      toset(keys(output.s3_bucket_name)) == toset(["stage", "prod"]) &&
       yamldecode(helm_release.argocd.values[0]).createClusterRoles &&
-      helm_release.argocd.namespace == "argocd" &&
-      alltrue([for bucket in aws_s3_bucket.backend : !bucket.force_destroy])
+      helm_release.argocd.namespace == "argocd"
     )
     error_message = "The self-hosted target must use Argo CD's cluster-wide RBAC."
   }
@@ -107,10 +121,8 @@ run "update_prod_cognito_in_existing_cluster" {
       output.cluster_arn == run.apply_and_teardown.cluster_arn &&
       output.argocd_cluster_name == run.apply_and_teardown.argocd_cluster_name &&
       output.application_pod_identities.stage == run.apply_and_teardown.application_pod_identities.stage &&
-      output.s3_bucket_name.stage == run.apply_and_teardown.s3_bucket_name.stage &&
       output.appsync_event_api_id.stage == run.apply_and_teardown.appsync_event_api_id.stage &&
       output.application_pod_identities.prod == run.apply_and_teardown.application_pod_identities.prod &&
-      output.s3_bucket_name.prod == run.apply_and_teardown.s3_bucket_name.prod &&
       output.appsync_event_api_id.prod == run.apply_and_teardown.appsync_event_api_id.prod &&
       yamldecode(helm_release.argocd.values[0]).createClusterRoles &&
       yamldecode(helm_release.argocd.values[0]).controller.clusterRoleRules.rules == [{
@@ -123,20 +135,3 @@ run "update_prod_cognito_in_existing_cluster" {
   }
 }
 
-run "prepare_disposable_teardown" {
-  command = apply
-
-  variables {
-    prod_cognito_user_pool_id = "us-east-1_Prod456"
-    s3_force_destroy          = true
-  }
-
-  assert {
-    condition = (
-      alltrue([for bucket in aws_s3_bucket.backend : bucket.force_destroy]) &&
-      output.s3_bucket_name == run.update_prod_cognito_in_existing_cluster.s3_bucket_name &&
-      output.cluster_arn == run.update_prod_cognito_in_existing_cluster.cluster_arn
-    )
-    error_message = "Teardown opt-in must update both existing buckets without replacing them or the cluster."
-  }
-}

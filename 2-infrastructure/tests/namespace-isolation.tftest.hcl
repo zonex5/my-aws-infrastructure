@@ -13,8 +13,24 @@ mock_provider "kubernetes" {}
 mock_provider "helm" {}
 mock_provider "time" {}
 
+override_data {
+  target = data.aws_ssm_parameter.storage
+  values = {
+    type = "String"
+    insecure_value = jsonencode({
+      schema_version = 1
+      aws_account_id = "123456789012"
+      aws_region     = "us-east-1"
+      s3_bucket_arn = {
+        stage = "arn:aws:s3:::stage-test-docs-123456789012-us-east-1"
+        prod  = "arn:aws:s3:::prod-test-docs-123456789012-us-east-1"
+      }
+    })
+  }
+}
 
 variables {
+  project_name               = "cluster-1"
   aws_region                 = "us-east-1"
   cluster_name               = "cluster-1"
   kubernetes_version         = "1.36"
@@ -25,7 +41,6 @@ variables {
   argocd_domain_name         = "argocd.example.com"
   acm_certificate_arn        = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
   cloudwatch_addon_version   = "v5.0.0-eksbuild.1"
-  s3_bucket_name             = "test-docs"
   stage_cognito_user_pool_id = "us-east-1_testing"
   prod_cognito_user_pool_id  = "us-east-1_Prod123"
   backend_sns_topic_names    = ["notifications", "audit"]
@@ -77,24 +92,6 @@ override_resource {
   target          = aws_eks_pod_identity_association.external_secrets
   override_during = plan
   values          = { association_id = "a-testexternalsecrets" }
-}
-
-override_resource {
-  target          = aws_s3_bucket.backend["stage"]
-  override_during = plan
-  values = {
-    id  = "stage-test-docs-123456789012-us-east-1"
-    arn = "arn:aws:s3:::stage-test-docs-123456789012-us-east-1"
-  }
-}
-
-override_resource {
-  target          = aws_s3_bucket.backend["prod"]
-  override_during = plan
-  values = {
-    id  = "prod-test-docs-123456789012-us-east-1"
-    arn = "arn:aws:s3:::prod-test-docs-123456789012-us-east-1"
-  }
 }
 
 override_resource {
@@ -355,7 +352,6 @@ run "stage_and_prod_namespaces" {
   assert {
     condition = (
       toset([for resource in kubernetes_namespace_v1.application : resource.metadata[0].name]) == toset(["stage", "prod"]) &&
-      length(aws_s3_bucket.backend) == 2 &&
       length(aws_iam_role.backend) == 2 && length(aws_iam_role.frontend) == 2 &&
       length(aws_iam_role_policy_attachment.backend) == 2 && length(aws_iam_role_policy_attachment.frontend) == 2 &&
       length(kubernetes_service_account_v1.backend) == 2 && length(kubernetes_service_account_v1.frontend) == 2 &&
@@ -422,7 +418,6 @@ run "stage_and_prod_namespaces" {
   assert {
     condition = alltrue([
       for namespace in keys(local.application_namespaces) :
-      aws_s3_bucket.backend[namespace].bucket == "${namespace}-test-docs-123456789012-us-east-1" &&
       toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "S3BucketMetadata"])) ==
       toset(["arn:aws:s3:::${namespace}-test-docs-123456789012-us-east-1"]) &&
       toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "S3Objects"])) ==
@@ -430,20 +425,9 @@ run "stage_and_prod_namespaces" {
       toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.actions if s.sid == "S3BucketMetadata"])) ==
       toset(["s3:ListBucket", "s3:GetBucketLocation"]) &&
       toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.actions if s.sid == "S3Objects"])) ==
-      toset(["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]) &&
-      aws_s3_bucket_public_access_block.backend[namespace].bucket == aws_s3_bucket.backend[namespace].id &&
-      aws_s3_bucket_public_access_block.backend[namespace].block_public_acls &&
-      aws_s3_bucket_public_access_block.backend[namespace].block_public_policy &&
-      aws_s3_bucket_public_access_block.backend[namespace].ignore_public_acls &&
-      aws_s3_bucket_public_access_block.backend[namespace].restrict_public_buckets &&
-      aws_s3_bucket_server_side_encryption_configuration.backend[namespace].bucket == aws_s3_bucket.backend[namespace].id &&
-      one(one(aws_s3_bucket_server_side_encryption_configuration.backend[namespace].rule).apply_server_side_encryption_by_default).sse_algorithm == "AES256" &&
-      aws_s3_bucket_versioning.backend[namespace].bucket == aws_s3_bucket.backend[namespace].id &&
-      one(aws_s3_bucket_versioning.backend[namespace].versioning_configuration).status == "Enabled" &&
-      output.s3_bucket_name[namespace] == "${namespace}-test-docs-123456789012-us-east-1" &&
-      output.s3_bucket_arn[namespace] == "arn:aws:s3:::${namespace}-test-docs-123456789012-us-east-1"
+      toset(["s3:GetObject", "s3:PutObject", "s3:DeleteObject"])
     ])
-    error_message = "Each environment must have its own private, encrypted and versioned bucket, with backend access limited to its bucket and objects."
+    error_message = "Backend access must use only its environment's storage outputs and object ARN."
   }
 
   assert {
@@ -531,7 +515,6 @@ run "shared_platform_and_cognito_isolation" {
         toset(["arn:aws:cognito-idp:us-east-1:123456789012:userpool/${namespace == "stage" ? var.stage_cognito_user_pool_id : var.prod_cognito_user_pool_id}"]) &&
         toset(keys(output.appsync_event_api_id[namespace])) == toset(["events", "other"]) &&
         toset(keys(output.backend_sns_topic_arns[namespace])) == toset(["notifications", "audit"]) &&
-        output.s3_bucket_name[namespace] == "${namespace}-test-docs-123456789012-us-east-1" &&
         aws_eks_pod_identity_association.backend[namespace].cluster_name == "cluster-1" &&
         aws_eks_pod_identity_association.backend[namespace].namespace == namespace &&
         jsondecode(data.aws_iam_policy_document.application_pod_identity_trust["${namespace}/backend"].json).Statement[0].Condition.StringEquals["aws:RequestTag/kubernetes-namespace"] == namespace &&
@@ -594,7 +577,6 @@ run "reordered_lists" {
   }
 
   variables {
-    s3_bucket_name          = "test-docs"
     backend_sns_topic_names = ["audit", "notifications"]
     appsync_event_api_name  = ["other", "events"]
   }
@@ -602,8 +584,7 @@ run "reordered_lists" {
     condition = (
       aws_sns_topic.backend["stage/notifications"].name == "stage-notifications" &&
       aws_sqs_queue.backend["stage/audit"].name == "stage-audit-sub" &&
-      aws_appsync_api.frontend["stage/events"].name == "stage-events" &&
-      aws_s3_bucket.backend["stage"].bucket == "stage-test-docs-123456789012-us-east-1"
+      aws_appsync_api.frontend["stage/events"].name == "stage-events"
     )
     error_message = "Resource addresses and names must be stable when lists are reordered."
   }
@@ -619,7 +600,6 @@ run "no_sns_topics" {
   }
 
   variables {
-    s3_bucket_name          = "test-docs"
     backend_sns_topic_names = []
     appsync_event_api_name  = ["events", "other"]
   }
@@ -647,74 +627,10 @@ run "queue_name_too_long" {
   }
 
   variables {
-    s3_bucket_name          = "test-docs"
     backend_sns_topic_names = ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
     appsync_event_api_name  = ["events", "other"]
   }
   expect_failures = [var.backend_sns_topic_names]
-}
-
-run "bucket_suffix_already_present" {
-  command = plan
-  providers = {
-    aws        = aws.offline
-    kubernetes = kubernetes
-    helm       = helm
-    time       = time
-  }
-
-  variables {
-    s3_bucket_name = "test-docs-123456789012-us-east-1"
-  }
-
-  assert {
-    condition = (
-      aws_s3_bucket.backend["stage"].bucket == "stage-test-docs-123456789012-us-east-1" &&
-      aws_s3_bucket.backend["prod"].bucket == "prod-test-docs-123456789012-us-east-1"
-    )
-    error_message = "An existing suffix for the current account and region must not be appended twice."
-  }
-}
-
-run "bucket_name_at_limit" {
-  command = plan
-  providers = {
-    aws        = aws.offline
-    kubernetes = kubernetes
-    helm       = helm
-    time       = time
-  }
-
-  variables {
-    s3_bucket_name          = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    backend_sns_topic_names = ["notifications", "audit"]
-    appsync_event_api_name  = ["events", "other"]
-  }
-
-  assert {
-    condition = (
-      length(aws_s3_bucket.backend["stage"].bucket) == 63
-    )
-    error_message = "The complete namespace-prefixed bucket name must accept the 63-character S3 boundary."
-  }
-}
-
-run "bucket_name_too_long" {
-  command = plan
-  providers = {
-    aws        = aws.offline
-    kubernetes = kubernetes
-    helm       = helm
-    time       = time
-  }
-
-  variables {
-    s3_bucket_name          = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    backend_sns_topic_names = ["notifications", "audit"]
-    appsync_event_api_name  = ["events", "other"]
-  }
-
-  expect_failures = [aws_s3_bucket.backend]
 }
 
 run "api_name_too_long" {
@@ -727,9 +643,134 @@ run "api_name_too_long" {
   }
 
   variables {
-    s3_bucket_name          = "test-docs"
     backend_sns_topic_names = ["notifications", "audit"]
     appsync_event_api_name  = ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
   }
   expect_failures = [var.appsync_event_api_name]
+}
+
+run "iam_uses_published_storage_metadata" {
+  command = plan
+  providers = {
+    aws        = aws.offline
+    kubernetes = kubernetes
+    helm       = helm
+    time       = time
+  }
+
+  override_data {
+    target = data.aws_ssm_parameter.storage
+    values = {
+      type = "String"
+      insecure_value = jsonencode({
+        schema_version = 1
+        aws_account_id = "123456789012"
+        aws_region     = "us-east-1"
+        s3_bucket_arn = {
+          stage = "arn:aws:s3:::stage-independent-storage"
+          prod  = "arn:aws:s3:::prod-independent-storage"
+        }
+      })
+    }
+  }
+
+  assert {
+    condition = alltrue([
+      for namespace in ["stage", "prod"] :
+      toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "S3BucketMetadata"])) ==
+      toset(["arn:aws:s3:::${namespace}-independent-storage"]) &&
+      toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "S3Objects"])) ==
+      toset(["arn:aws:s3:::${namespace}-independent-storage/*"])
+    ])
+    error_message = "IAM must consume the published SSM bucket ARNs instead of reconstructing bucket names."
+  }
+
+  assert {
+    condition     = data.aws_ssm_parameter.storage.name == "/qualitypro/cluster-1/storage" && !data.aws_ssm_parameter.storage.with_decryption
+    error_message = "Infrastructure must discover public storage metadata through the shared project path without HCP access."
+  }
+}
+
+run "reject_storage_from_another_account" {
+  command = plan
+  providers = {
+    aws        = aws.offline
+    kubernetes = kubernetes
+    helm       = helm
+    time       = time
+  }
+
+  override_data {
+    target = data.aws_ssm_parameter.storage
+    values = {
+      type = "String"
+      insecure_value = jsonencode({
+        schema_version = 1
+        aws_account_id = "999999999999"
+        aws_region     = "us-east-1"
+        s3_bucket_arn = {
+          stage = "arn:aws:s3:::stage-other-account"
+          prod  = "arn:aws:s3:::prod-other-account"
+        }
+      })
+    }
+  }
+
+  expect_failures = [data.aws_ssm_parameter.storage]
+}
+
+run "reject_storage_from_another_region" {
+  command = plan
+  providers = {
+    aws        = aws.offline
+    kubernetes = kubernetes
+    helm       = helm
+    time       = time
+  }
+
+  override_data {
+    target = data.aws_ssm_parameter.storage
+    values = {
+      type = "String"
+      insecure_value = jsonencode({
+        schema_version = 1
+        aws_account_id = "123456789012"
+        aws_region     = "eu-west-1"
+        s3_bucket_arn = {
+          stage = "arn:aws:s3:::stage-other-region"
+          prod  = "arn:aws:s3:::prod-other-region"
+        }
+      })
+    }
+  }
+
+  expect_failures = [data.aws_ssm_parameter.storage]
+}
+
+run "reject_unsupported_storage_metadata_version" {
+  command = plan
+  providers = {
+    aws        = aws.offline
+    kubernetes = kubernetes
+    helm       = helm
+    time       = time
+  }
+
+  override_data {
+    target = data.aws_ssm_parameter.storage
+    values = {
+      type = "String"
+      insecure_value = jsonencode({
+        schema_version = 2
+        aws_account_id = "123456789012"
+        aws_region     = "us-east-1"
+        s3_bucket_arn = {
+          stage = "arn:aws:s3:::stage-independent-storage"
+          prod  = "arn:aws:s3:::prod-independent-storage"
+        }
+      })
+    }
+  }
+
+  expect_failures = [data.aws_ssm_parameter.storage]
 }

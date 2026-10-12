@@ -6,16 +6,12 @@ locals {
       prod  = var.prod_cognito_user_pool_id
       } : namespace => {
       cognito_user_pool_id         = pool_id
-      s3_bucket_name               = var.s3_bucket_name
       backend_sns_topic_names      = var.backend_sns_topic_names
       appsync_event_api_name       = var.appsync_event_api_name
       appsync_event_namespace_name = var.appsync_event_namespace_name
     }
   }
   application_namespace_keys = toset(keys(local.application_namespaces))
-
-  s3_bucket_suffix    = "${data.aws_caller_identity.current.account_id}-${var.aws_region}"
-  s3_bucket_base_name = endswith(var.s3_bucket_name, "-${local.s3_bucket_suffix}") ? var.s3_bucket_name : "${var.s3_bucket_name}-${local.s3_bucket_suffix}"
 
   backend_service_account_name  = "backend-service-account"
   frontend_service_account_name = "frontend-service-account"
