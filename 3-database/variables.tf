@@ -149,7 +149,7 @@ variable "db_maintenance_window" {
 variable "db_deletion_protection" {
   description = "Prevent RDS deletion. Apply false before intentionally destroying database."
   type        = bool
-  default     = true
+  default     = false
   nullable    = false
 }
 
