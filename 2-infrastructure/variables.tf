@@ -5,7 +5,7 @@ variable "aws_region" {
 }
 
 variable "project_name" {
-  description = "Stable project identifier shared with storage; reads bucket metadata from /qualitypro/<project_name>/storage in AWS SSM."
+  description = "Stable project identifier shared with storage and database; discovers storage and publishes the cluster network through AWS SSM."
   type        = string
   nullable    = false
 

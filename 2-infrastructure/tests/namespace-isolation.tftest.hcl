@@ -774,3 +774,34 @@ run "reject_unsupported_storage_metadata_version" {
 
   expect_failures = [data.aws_ssm_parameter.storage]
 }
+
+run "publish_network_for_database" {
+  command = plan
+  providers = {
+    aws        = aws.offline
+    kubernetes = kubernetes
+    helm       = helm
+    time       = time
+  }
+
+  variables {
+    project_name = "shared-project"
+  }
+
+  assert {
+    condition = (
+      output.network_metadata_parameter_name == "/qualitypro/shared-project/network" &&
+      aws_ssm_parameter.network.type == "String" &&
+      jsondecode(aws_ssm_parameter.network.insecure_value) == {
+        schema_version         = 1
+        project_name           = "shared-project"
+        aws_account_id         = "123456789012"
+        aws_region             = "us-east-1"
+        vpc_id                 = "vpc-00000000000000001"
+        private_subnet_ids     = ["subnet-00000000000000001", "subnet-00000000000000002"]
+        node_security_group_id = "sg-00000000000000001"
+      }
+    )
+    error_message = "Infrastructure must publish actual VPC, private subnets and EKS client SG under the project identifier, independent of the cluster name."
+  }
+}

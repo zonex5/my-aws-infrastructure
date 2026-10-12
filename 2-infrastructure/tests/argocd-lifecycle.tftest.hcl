@@ -103,7 +103,9 @@ run "apply_and_teardown" {
       output.argocd_cluster_name == "in-cluster" &&
       toset(keys(output.application_pod_identities)) == toset(["stage", "prod"]) &&
       yamldecode(helm_release.argocd.values[0]).createClusterRoles &&
-      helm_release.argocd.namespace == "argocd"
+      helm_release.argocd.namespace == "argocd" &&
+      jsondecode(aws_ssm_parameter.network.insecure_value).vpc_id == "vpc-00000000000000001" &&
+      jsondecode(aws_ssm_parameter.network.insecure_value).node_security_group_id == "sg-00000000000000001"
     )
     error_message = "The self-hosted target must use Argo CD's cluster-wide RBAC."
   }

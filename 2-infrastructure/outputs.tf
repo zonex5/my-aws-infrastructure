@@ -33,6 +33,16 @@ output "private_subnet_ids" {
   value       = module.vpc.private_subnets
 }
 
+output "node_security_group_id" {
+  description = "EKS node security group used by private services to allow pod connections."
+  value       = module.eks.node_security_group_id
+}
+
+output "network_metadata_parameter_name" {
+  description = "SSM parameter automatically publishing the network consumed by database."
+  value       = aws_ssm_parameter.network.name
+}
+
 output "public_subnet_ids" {
   description = "Public subnet identifiers used by the ALB."
   value       = module.vpc.public_subnets
