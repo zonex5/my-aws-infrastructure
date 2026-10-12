@@ -88,7 +88,7 @@ variable "db_allocated_storage" {
 variable "db_max_allocated_storage" {
   description = "Storage autoscaling limit in GiB; 0 disables autoscaling."
   type        = number
-  default     = 100
+  default     = 25
   nullable    = false
 
   validation {
@@ -125,7 +125,7 @@ variable "db_multi_az" {
 variable "db_backup_retention_days" {
   description = "Automated backup retention in days; 0 disables automated backups."
   type        = number
-  default     = 7
+  default     = 0
   nullable    = false
 
   validation {
