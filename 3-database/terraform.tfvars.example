@@ -3,6 +3,7 @@ aws_region   = "us-east-1"
 project_name = "my-cluster"
 
 # Regional availability/class compatibility are checked through AWS at plan time.
+# db_engine_version and db_instance_class are required; these examples are not defaults.
 db_engine_version  = "17.10"
 db_instance_class  = "db.t4g.micro"
 db_master_username = "postgres"

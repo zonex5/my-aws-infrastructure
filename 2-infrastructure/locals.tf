@@ -1,11 +1,7 @@
 locals {
-  # Both environments share resource base names; only Cognito pools differ.
+  # Both environments share resource base names with namespace-specific grants.
   application_namespaces = {
-    for namespace, pool_id in {
-      stage = var.stage_cognito_user_pool_id
-      prod  = var.prod_cognito_user_pool_id
-      } : namespace => {
-      cognito_user_pool_id         = pool_id
+    for namespace in ["stage", "prod"] : namespace => {
       backend_sns_topic_names      = var.backend_sns_topic_names
       appsync_event_api_name       = var.appsync_event_api_name
       appsync_event_namespace_name = var.appsync_event_namespace_name

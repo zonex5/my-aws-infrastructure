@@ -17,6 +17,7 @@ project_name = "my-cluster"
 # Restrict the public EKS API endpoint to your public IP or trusted network CIDRs.
 cluster_endpoint_public_access_cidrs = ["103.0.13.10/32"]
 
+# Required: choose node_instance_type explicitly; this example is not a default.
 # In HCP Terraform, enter node_instance_type as a string with HCL disabled.
 node_instance_type = "c7i-flex.large"
 node_capacity_type = "ON_DEMAND"
@@ -24,7 +25,7 @@ node_min_size      = 2
 node_max_size      = 2
 node_desired_size  = 2
 
-# Use an existing ACM certificate covering every hostname in domain_name and one existing Cognito pool per application namespace.
+# Use an existing ACM certificate covering every hostname in domain_name.
 acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
 
 # Optional: override the default Secrets Manager scope <namespace>/* for all application namespaces.
@@ -35,13 +36,9 @@ acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0
 # Public Argo CD URL hostname; include it in domain_name above.
 argocd_domain_name = "argocd.example.com"
 
-# Both application namespaces are created in the infrastructure state; S3 has its own storage state.
-# Enter these strings in HCP Terraform with HCL disabled (without quotes).
-stage_cognito_user_pool_id = "us-east-1_Stage123"
-prod_cognito_user_pool_id  = "us-east-1_Prod123"
-
 # Shared base names: stage-/prod- prefixes are added automatically.
 # In HCP Terraform, enable HCL for these list values.
+# backend_sns_topic_names is required; explicitly use [] to disable SNS/SQS.
 backend_sns_topic_names = ["notifications", "audit"]
 appsync_event_api_name  = ["events", "other"]
 

@@ -52,21 +52,20 @@ override_data {
 }
 
 variables {
-  project_name               = "cluster-1"
-  aws_region                 = "us-east-1"
-  cluster_name               = "cluster-1"
-  kubernetes_version         = "1.36"
-  node_min_size              = 2
-  node_max_size              = 2
-  node_desired_size          = 2
-  domain_name                = ["app.example.com", "argocd.example.com", "api.example.com"]
-  argocd_domain_name         = "argocd.example.com"
-  acm_certificate_arn        = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
-  cloudwatch_addon_version   = "v5.0.0-eksbuild.1"
-  stage_cognito_user_pool_id = "us-east-1_testing"
-  prod_cognito_user_pool_id  = "us-east-1_Prod123"
-  backend_sns_topic_names    = []
-  appsync_event_api_name     = ["events"]
+  project_name             = "cluster-1"
+  aws_region               = "us-east-1"
+  cluster_name             = "cluster-1"
+  kubernetes_version       = "1.36"
+  node_instance_type       = "c7i-flex.large"
+  node_min_size            = 2
+  node_max_size            = 2
+  node_desired_size        = 2
+  domain_name              = ["app.example.com", "argocd.example.com", "api.example.com"]
+  argocd_domain_name       = "argocd.example.com"
+  acm_certificate_arn      = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+  cloudwatch_addon_version = "v5.0.0-eksbuild.1"
+  backend_sns_topic_names  = []
+  appsync_event_api_name   = ["events"]
 }
 
 override_module {
@@ -111,12 +110,8 @@ run "apply_and_teardown" {
   }
 }
 
-run "update_prod_cognito_in_existing_cluster" {
+run "reapply_existing_shared_cluster" {
   command = apply
-
-  variables {
-    prod_cognito_user_pool_id = "us-east-1_Prod456"
-  }
 
   assert {
     condition = (
@@ -133,7 +128,7 @@ run "update_prod_cognito_in_existing_cluster" {
         verbs     = ["*"]
       }]
     )
-    error_message = "Updating the prod pool must retain the existing shared cluster and both namespaces resource identities."
+    error_message = "Reapplying must retain the existing shared cluster and both namespaces resource identities."
   }
 }
 

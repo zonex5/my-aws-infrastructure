@@ -103,9 +103,8 @@ variable "cloudwatch_addon_version" {
 }
 
 variable "node_instance_type" {
-  description = "Single EC2 instance type for the managed node group. In HCP Terraform, enter with HCL disabled, for example c7i-flex.large."
+  description = "Required single EC2 instance type for the managed node group."
   type        = string
-  default     = "c7i-flex.large"
   nullable    = false
 
   validation {
@@ -154,33 +153,9 @@ variable "acm_certificate_arn" {
   }
 }
 
-variable "stage_cognito_user_pool_id" {
-  description = "Existing Cognito User Pool ID for stage. In HCP Terraform, enter as a Terraform string variable with HCL disabled."
-  type        = string
-  nullable    = false
-
-  validation {
-    condition     = can(regex("^[a-z]{2}(-[a-z]+)+-[0-9]+_[A-Za-z0-9]+$", var.stage_cognito_user_pool_id))
-    error_message = "Provide an existing Cognito User Pool ID for stage, such as us-east-1_Stage123; do not use an ARN or App Client ID."
-  }
-}
-
-variable "prod_cognito_user_pool_id" {
-  description = "Existing Cognito User Pool ID for prod, configured separately from stage; may temporarily use the same pool. In HCP Terraform, enter as a Terraform string variable with HCL disabled."
-  type        = string
-  nullable    = false
-
-  validation {
-    condition     = can(regex("^[a-z]{2}(-[a-z]+)+-[0-9]+_[A-Za-z0-9]+$", var.prod_cognito_user_pool_id))
-    error_message = "Provide an existing Cognito User Pool ID for prod, such as us-east-1_Prod123; do not use an ARN or App Client ID."
-  }
-
-}
-
 variable "backend_sns_topic_names" {
-  description = "Shared SNS topic base names for both stage and prod. Empty disables SNS/SQS in both environments. In HCP Terraform, enable HCL and enter a list such as [\"notifications\", \"audit\"]."
+  description = "Required shared SNS topic base names for both stage and prod. Explicitly supply an empty list to disable SNS/SQS in both environments. In HCP Terraform, enable HCL and enter a list such as [\"notifications\", \"audit\"]."
   type        = list(string)
-  default     = []
   nullable    = false
 
   validation {

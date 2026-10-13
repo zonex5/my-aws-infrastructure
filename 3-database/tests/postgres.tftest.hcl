@@ -49,6 +49,7 @@ variables {
   aws_region        = "us-east-1"
   project_name      = "cluster-1"
   db_engine_version = "17.10"
+  db_instance_class = "db.t4g.micro"
 }
 
 override_data {

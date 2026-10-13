@@ -16,12 +16,6 @@ data "aws_iam_policy_document" "backend" {
     resources = ["${local.storage_bucket_arns[each.key]}/*"]
   }
 
-  statement {
-    sid       = "CognitoUsersRead"
-    actions   = ["cognito-idp:AdminGetUser", "cognito-idp:ListUsers"]
-    resources = ["arn:${data.aws_partition.current.partition}:cognito-idp:${var.aws_region}:${data.aws_caller_identity.current.account_id}:userpool/${local.application_namespaces[each.key].cognito_user_pool_id}"]
-  }
-
   dynamic "statement" {
     for_each = length(local.application_namespaces[each.key].backend_sns_topic_names) > 0 ? [1] : []
 

@@ -27,9 +27,8 @@ variable "db_identifier" {
 }
 
 variable "db_instance_class" {
-  description = "Exact RDS instance class, for example db.t4g.micro. Compatibility is checked in AWS at plan time."
+  description = "Required exact RDS instance class, for example db.t4g.micro. Compatibility is checked in AWS at plan time."
   type        = string
-  default     = "db.t4g.micro"
   nullable    = false
 
   validation {
@@ -88,7 +87,7 @@ variable "db_allocated_storage" {
 variable "db_max_allocated_storage" {
   description = "Storage autoscaling limit in GiB; 0 disables autoscaling."
   type        = number
-  default     = 25
+  default     = 100
   nullable    = false
 
   validation {
@@ -125,7 +124,7 @@ variable "db_multi_az" {
 variable "db_backup_retention_days" {
   description = "Automated backup retention in days; 0 disables automated backups."
   type        = number
-  default     = 0
+  default     = 7
   nullable    = false
 
   validation {
@@ -149,7 +148,7 @@ variable "db_maintenance_window" {
 variable "db_deletion_protection" {
   description = "Prevent RDS deletion. Apply false before intentionally destroying database."
   type        = bool
-  default     = false
+  default     = true
   nullable    = false
 }
 

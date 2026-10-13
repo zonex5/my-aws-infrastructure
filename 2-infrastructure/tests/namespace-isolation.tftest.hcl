@@ -30,21 +30,20 @@ override_data {
 }
 
 variables {
-  project_name               = "cluster-1"
-  aws_region                 = "us-east-1"
-  cluster_name               = "cluster-1"
-  kubernetes_version         = "1.36"
-  node_min_size              = 2
-  node_max_size              = 2
-  node_desired_size          = 2
-  domain_name                = ["app.example.com", "argocd.example.com", "api.example.com"]
-  argocd_domain_name         = "argocd.example.com"
-  acm_certificate_arn        = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
-  cloudwatch_addon_version   = "v5.0.0-eksbuild.1"
-  stage_cognito_user_pool_id = "us-east-1_testing"
-  prod_cognito_user_pool_id  = "us-east-1_Prod123"
-  backend_sns_topic_names    = ["notifications", "audit"]
-  appsync_event_api_name     = ["events", "other"]
+  project_name             = "cluster-1"
+  aws_region               = "us-east-1"
+  cluster_name             = "cluster-1"
+  kubernetes_version       = "1.36"
+  node_instance_type       = "c7i-flex.large"
+  node_min_size            = 2
+  node_max_size            = 2
+  node_desired_size        = 2
+  domain_name              = ["app.example.com", "argocd.example.com", "api.example.com"]
+  argocd_domain_name       = "argocd.example.com"
+  acm_certificate_arn      = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+  cloudwatch_addon_version = "v5.0.0-eksbuild.1"
+  backend_sns_topic_names  = ["notifications", "audit"]
+  appsync_event_api_name   = ["events", "other"]
 }
 
 override_module {
@@ -398,7 +397,6 @@ run "stage_and_prod_namespaces" {
       toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources])) == toset([
         "arn:aws:s3:::${namespace}-test-docs-123456789012-us-east-1",
         "arn:aws:s3:::${namespace}-test-docs-123456789012-us-east-1/*",
-        "arn:aws:cognito-idp:us-east-1:123456789012:userpool/${namespace == "stage" ? var.stage_cognito_user_pool_id : var.prod_cognito_user_pool_id}",
         "arn:aws:sns:us-east-1:123456789012:${namespace}-notifications",
         "arn:aws:sns:us-east-1:123456789012:${namespace}-audit",
         "arn:aws:sqs:us-east-1:123456789012:${namespace}-notifications-sub",
@@ -497,7 +495,7 @@ run "stage_and_prod_namespaces" {
   }
 }
 
-run "shared_platform_and_cognito_isolation" {
+run "shared_platform_and_namespace_isolation" {
   command = plan
   providers = {
     aws        = aws.offline
@@ -511,8 +509,6 @@ run "shared_platform_and_cognito_isolation" {
       toset(keys(kubernetes_namespace_v1.application)) == toset(["stage", "prod"]) &&
       alltrue([
         for namespace in ["stage", "prod"] :
-        toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "CognitoUsersRead"])) ==
-        toset(["arn:aws:cognito-idp:us-east-1:123456789012:userpool/${namespace == "stage" ? var.stage_cognito_user_pool_id : var.prod_cognito_user_pool_id}"]) &&
         toset(keys(output.appsync_event_api_id[namespace])) == toset(["events", "other"]) &&
         toset(keys(output.backend_sns_topic_arns[namespace])) == toset(["notifications", "audit"]) &&
         aws_eks_pod_identity_association.backend[namespace].cluster_name == "cluster-1" &&
@@ -531,7 +527,7 @@ run "shared_platform_and_cognito_isolation" {
         "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/*"
       ])
     )
-    error_message = "Both environments must share one platform, use identical resource base names, and have access only to their own Cognito pool."
+    error_message = "Both environments must share one platform, use identical resource base names, and retain namespace-specific grants."
   }
 
   assert {
@@ -545,7 +541,7 @@ run "shared_platform_and_cognito_isolation" {
     error_message = "Outputs must expose separately prefixed resources for both stage and prod."
   }
 }
-run "shared_cognito_pool_allowed" {
+run "application_pod_identity_excludes_cognito" {
   command = plan
   providers = {
     aws        = aws.offline
@@ -553,17 +549,18 @@ run "shared_cognito_pool_allowed" {
     helm       = helm
     time       = time
   }
-  variables {
-    stage_cognito_user_pool_id = "us-east-1_Shared123"
-    prod_cognito_user_pool_id  = "us-east-1_Shared123"
-  }
   assert {
     condition = alltrue([
       for namespace in ["stage", "prod"] :
-      toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.resources if s.sid == "CognitoUsersRead"])) ==
-      toset(["arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_Shared123"])
+      toset(flatten([for s in data.aws_iam_policy_document.backend[namespace].statement : s.actions])) == toset([
+        "s3:ListBucket", "s3:GetBucketLocation", "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+        "sns:Publish", "sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage",
+        "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes", "sqs:GetQueueUrl",
+      ]) &&
+      toset(flatten([for s in data.aws_iam_policy_document.frontend[namespace].statement : s.actions])) ==
+      toset(["appsync:EventConnect", "appsync:EventPublish", "appsync:EventSubscribe"])
     ])
-    error_message = "Independently configured stage and prod IDs must support temporarily sharing one Cognito pool."
+    error_message = "Application Pod Identity policies must grant only S3/SNS/SQS or AppSync access; Cognito uses separately supplied application credentials."
   }
 }
 
