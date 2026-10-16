@@ -1,0 +1,56 @@
+module "qualitypro" {
+  source = "./modules/qualitypro"
+
+  providers = {
+    aws        = aws
+    kubernetes = kubernetes
+    helm       = helm
+    time       = time
+  }
+
+  aws_region                           = var.aws_region
+  project_name                         = var.project_name
+  cluster_name                         = var.cluster_name
+  kubernetes_version                   = var.kubernetes_version
+  domain_name                          = var.domain_name
+  vpc_cidr                             = var.vpc_cidr
+  public_subnet_cidrs                  = var.public_subnet_cidrs
+  private_subnet_cidrs                 = var.private_subnet_cidrs
+  nat_gateway_per_az                   = var.nat_gateway_per_az
+  cluster_endpoint_public_access_cidrs = var.cluster_endpoint_public_access_cidrs
+  cloudwatch_log_retention_days        = var.cloudwatch_log_retention_days
+  cloudwatch_addon_version             = var.cloudwatch_addon_version
+  node_instance_type                   = var.node_instance_type
+  node_capacity_type                   = var.node_capacity_type
+  node_min_size                        = var.node_min_size
+  node_max_size                        = var.node_max_size
+  node_desired_size                    = var.node_desired_size
+  acm_certificate_arn                  = var.acm_certificate_arn
+  backend_sns_topic_names              = var.backend_sns_topic_names
+  appsync_event_api_name               = var.appsync_event_api_name
+  appsync_event_namespace_name         = var.appsync_event_namespace_name
+  external_secrets_secret_arns         = var.external_secrets_secret_arns
+  external_secrets_kms_key_arns        = var.external_secrets_kms_key_arns
+  argocd_domain_name                   = var.argocd_domain_name
+  s3_bucket_name                       = var.s3_bucket_name
+  s3_force_destroy                     = var.s3_force_destroy
+  db_identifier                        = var.db_identifier
+  db_instance_class                    = var.db_instance_class
+  db_engine_version                    = var.db_engine_version
+  db_master_username                   = var.db_master_username
+  db_port                              = var.db_port
+  db_allocated_storage                 = var.db_allocated_storage
+  db_max_allocated_storage             = var.db_max_allocated_storage
+  db_storage_type                      = var.db_storage_type
+  db_kms_key_arn                       = var.db_kms_key_arn
+  db_multi_az                          = var.db_multi_az
+  db_backup_retention_days             = var.db_backup_retention_days
+  db_backup_window                     = var.db_backup_window
+  db_maintenance_window                = var.db_maintenance_window
+  db_deletion_protection               = var.db_deletion_protection
+  db_skip_final_snapshot               = var.db_skip_final_snapshot
+  db_final_snapshot_identifier         = var.db_final_snapshot_identifier
+  db_apply_immediately                 = var.db_apply_immediately
+  db_auto_minor_version_upgrade        = var.db_auto_minor_version_upgrade
+  db_allow_major_version_upgrade       = var.db_allow_major_version_upgrade
+}

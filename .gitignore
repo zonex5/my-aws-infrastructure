@@ -17,3 +17,6 @@ backend.hcl
 !terraform.tfvars.example
 
 .idea/
+
+# Only the deployment root's provider lock file is committed.
+/modules/**/.terraform.lock.hcl

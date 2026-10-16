@@ -1,0 +1,77 @@
+# Copy this file to terraform.tfvars and replace the example resource identifiers.
+# Keep terraform.tfvars out of Git.
+# Every variable without a default is required and must not be null.
+aws_region           = "us-east-1"
+cluster_name         = "my-cluster"
+kubernetes_version   = "1.36"
+domain_name          = ["*.example.com"]
+vpc_cidr             = "10.0.0.0/16"
+public_subnet_cidrs  = ["10.0.0.0/24", "10.0.1.0/24"]
+private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
+nat_gateway_per_az   = true
+
+# Stable project identifier for this entire deployment.
+project_name = "my-cluster"
+
+# Restrict the public EKS API endpoint to your public IP or trusted network CIDRs.
+cluster_endpoint_public_access_cidrs = ["103.0.13.10/32"]
+
+# Required: choose node_instance_type explicitly; this example is not a default.
+# In HCP Terraform, enter node_instance_type as a string with HCL disabled.
+node_instance_type = "c7i-flex.large"
+node_capacity_type = "ON_DEMAND"
+node_min_size      = 2
+node_max_size      = 2
+node_desired_size  = 2
+
+# Use an existing ACM certificate covering every hostname in domain_name.
+acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+
+# Optional: override the default Secrets Manager scope <namespace>/* for all application namespaces.
+# external_secrets_secret_arns = ["arn:aws:secretsmanager:us-east-1:123456789012:secret:stage/*"]
+# For secrets encrypted with customer-managed KMS keys, also grant decrypt access.
+# external_secrets_kms_key_arns = ["arn:aws:kms:us-east-1:123456789012:key/00000000-0000-0000-0000-000000000000"]
+
+# Public Argo CD URL hostname; covered by the wildcard in domain_name above.
+argocd_domain_name = "argocd.example.com"
+
+# Shared base names: stage-/prod- prefixes are added automatically.
+# In HCP Terraform, enable HCL for these list values.
+# backend_sns_topic_names is required; explicitly use [] to disable SNS/SQS.
+backend_sns_topic_names = ["notifications", "audit"]
+appsync_event_api_name  = ["events", "other"]
+
+# Optional shared AppSync channel namespace; defaults to events.
+# appsync_event_namespace_name = "events"
+
+# Separate stage/prod buckets in this same deployment.
+s3_bucket_name   = "qualitypro-docs"
+s3_force_destroy = false
+
+# Regional availability/class compatibility are checked through AWS at plan time.
+# db_engine_version and db_instance_class are required; these examples are not defaults.
+db_engine_version  = "17.10"
+db_instance_class  = "db.t4g.micro"
+db_master_username = "postgres"
+db_port            = 5432
+
+# No application db_name, db_password or SQL users are configured.
+# RDS generates the administrator password in Secrets Manager automatically.
+db_allocated_storage     = 20
+db_max_allocated_storage = 100
+db_storage_type          = "gp3"
+db_multi_az              = false
+db_backup_retention_days = 7
+
+# Apply false to deletion protection before intentional destroy.
+# A final snapshot is retained by default; its name must not already exist.
+db_deletion_protection = true
+db_skip_final_snapshot = false
+# db_final_snapshot_identifier = "my-cluster-postgres-final-20261012"
+
+db_apply_immediately          = false
+db_auto_minor_version_upgrade = true
+# db_allow_major_version_upgrade = false
+# db_backup_window      = "01:00-02:00"
+# db_maintenance_window = "sun:03:00-sun:04:00"
+# db_kms_key_arn        = "arn:aws:kms:us-east-1:123456789012:key/00000000-0000-0000-0000-000000000000"
