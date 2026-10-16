@@ -1,5 +1,7 @@
 # QualityPro infrastructure module
 
+`node_availability_zone` is required and places all worker nodes in one available AZ in `aws_region`. The VPC retains two AZs: the selected worker AZ first, followed by another available AZ. EKS control plane, ALB and RDS subnet groups retain both AZs. Losing the worker AZ affects all worker nodes.
+
 Creates one VPC, EKS cluster, ALB ingress, Istio, Argo CD, External Secrets Operator, observability and private RDS PostgreSQL instance. Both `stage` and `prod` share the cluster and database instance; they receive separate namespaces, S3 buckets, backend/frontend IAM roles, AppSync APIs and configured SNS/SQS resources.
 
 The repository root is a complete caller example: `main.tf` passes the inputs, `providers.tf` configures AWS/Kubernetes/Helm, and `terraform.tfvars.example` lists deployment values. The module accepts no AWS credentials and configures no backend or provider internally. Its resources are owned by the caller's single state.

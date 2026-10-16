@@ -20,6 +20,7 @@ module "qualitypro" {
   cluster_endpoint_public_access_cidrs = var.cluster_endpoint_public_access_cidrs
   cloudwatch_log_retention_days        = var.cloudwatch_log_retention_days
   cloudwatch_addon_version             = var.cloudwatch_addon_version
+  node_availability_zone               = var.node_availability_zone
   node_instance_type                   = var.node_instance_type
   node_capacity_type                   = var.node_capacity_type
   node_min_size                        = var.node_min_size

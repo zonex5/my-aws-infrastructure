@@ -54,7 +54,7 @@ output "vpc_id" {
 }
 
 output "private_subnet_ids" {
-  description = "Private subnet identifiers used by worker nodes."
+  description = "Private subnet identifiers across both VPC AZs; worker nodes use only the first subnet."
   value       = module.vpc.private_subnets
 }
 

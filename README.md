@@ -9,7 +9,7 @@ Internet → application domain → public ALB → Istio ingress gateway
 ## Components Deployed
 
 - A VPC with public/private subnets across two Availability Zones, an Internet Gateway, NAT gateways, routing, and an S3 Gateway VPC Endpoint.
-- EKS with a Managed Node Group in private subnets, CoreDNS, kube-proxy, VPC CNI, and the EKS Pod Identity Agent.
+- EKS with a Managed Node Group in one private subnet in the explicitly selected `node_availability_zone`, CoreDNS, kube-proxy, VPC CNI, and the EKS Pod Identity Agent. Both worker nodes share that AZ; an AZ outage affects all workers. VPC, EKS control plane and ALB retain subnets across two AZs.
 - Istio: base components, istiod, and an ingress gateway with a NodePort Service.
 - The AWS Load Balancer Controller and an Ingress that creates a public ALB with HTTPS and HTTP-to-HTTPS redirection.
 - Both `stage` and `prod` application namespaces with Istio injection, backend/frontend ServiceAccounts, and separate IAM roles through EKS Pod Identity.
@@ -117,6 +117,7 @@ Every variable without a `default` is required and uses `nullable = false`: supp
 | `nat_gateway_per_az` | `true` | Yes | Optional; `true` |
 | `cluster_endpoint_public_access_cidrs` | `["103.0.13.10/32"]` | Yes | Optional; `["0.0.0.0/0"]`; set trusted CIDRs |
 | `node_instance_type` | `c7i-flex.large` | No | Required; no default |
+| `node_availability_zone` | `us-east-1a` | No | Required; available standard AZ in `aws_region`; all workers use this AZ |
 | `node_capacity_type` | `ON_DEMAND` | No | Optional; `ON_DEMAND` |
 | `node_min_size` | `2` | Yes | Required |
 | `node_max_size` | `2` | Yes | Required |

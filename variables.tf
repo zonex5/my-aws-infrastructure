@@ -102,6 +102,12 @@ variable "cloudwatch_addon_version" {
   }
 }
 
+variable "node_availability_zone" {
+  description = "Availability Zone for all worker nodes; must be available in aws_region."
+  type        = string
+  nullable    = false
+}
+
 variable "node_instance_type" {
   description = "Required single EC2 instance type for the managed node group."
   type        = string

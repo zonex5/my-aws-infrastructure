@@ -48,7 +48,7 @@ module "eks" {
 
   eks_managed_node_groups = {
     workers = {
-      subnet_ids     = terraform_data.private_subnets_ready.output
+      subnet_ids     = [terraform_data.private_subnets_ready.output[0]]
       ami_type       = "AL2023_x86_64_STANDARD"
       instance_types = [var.node_instance_type]
       capacity_type  = var.node_capacity_type

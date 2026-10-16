@@ -16,6 +16,9 @@ project_name = "my-cluster"
 # Restrict the public EKS API endpoint to your public IP or trusted network CIDRs.
 cluster_endpoint_public_access_cidrs = ["103.0.13.10/32"]
 
+# Required: all worker nodes use this AZ. VPC/control plane/ALB still use two AZs.
+node_availability_zone = "us-east-1a"
+
 # Required: choose node_instance_type explicitly; this example is not a default.
 # In HCP Terraform, enter node_instance_type as a string with HCL disabled.
 node_instance_type = "c7i-flex.large"

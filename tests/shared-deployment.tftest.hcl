@@ -5,6 +5,7 @@ mock_provider "kubernetes" {}
 mock_provider "helm" {}
 mock_provider "time" {}
 variables {
+  node_availability_zone   = "us-east-1a"
   aws_region               = "us-east-1"
   project_name             = "cluster-1"
   cluster_name             = "cluster-1"

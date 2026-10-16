@@ -130,7 +130,33 @@ mock_provider "kubernetes" {}
 mock_provider "helm" {}
 mock_provider "time" {}
 
+run "workers_use_explicit_zone" {
+  command   = plan
+  providers = { aws = aws.offline, kubernetes = kubernetes, helm = helm, time = time }
+
+  variables {
+    node_availability_zone = "us-east-1b"
+  }
+
+  assert {
+    condition     = local.availability_zones == tolist(["us-east-1b", "us-east-1a"])
+    error_message = "The requested worker AZ must own the first subnet while retaining a second AZ for the control plane and ALB."
+  }
+}
+
+run "reject_unavailable_worker_zone" {
+  command   = plan
+  providers = { aws = aws.offline, kubernetes = kubernetes, helm = helm, time = time }
+
+  variables {
+    node_availability_zone = "us-east-1z"
+  }
+
+  expect_failures = [var.node_availability_zone]
+}
+
 variables {
+  node_availability_zone   = "us-east-1a"
   aws_region               = "us-east-1"
   project_name             = "cluster-1"
   cluster_name             = "cluster-1"

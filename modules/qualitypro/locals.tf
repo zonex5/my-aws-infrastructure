@@ -36,7 +36,12 @@ locals {
     ]) : api.key => api
   }
 
-  availability_zones = slice(data.aws_availability_zones.available.names, 0, 2)
+  # Keep the worker AZ first so its private subnet is index 0. The second AZ
+  # provides the additional subnet required by the EKS control plane and ALB.
+  availability_zones = slice(distinct(concat(
+    [var.node_availability_zone],
+    data.aws_availability_zones.available.names
+  )), 0, 2)
 
   common_tags = {
     Project   = var.cluster_name
